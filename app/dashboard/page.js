@@ -1,8 +1,12 @@
+import Header from '@/components/layout/Header'
+
 export default function DashboardPage() {
   return (
-    <div style={{ padding: '40px' }}>
-      <h1>Dashboard</h1>
-      <p>Bienvenue sur votre dashboard.</p>
-    </div>
+    <>
+      <Header title="Dashboard" />
+      <div style={{ padding: '32px' }}>
+        <p style={{ color: '#888888' }}>Bienvenue sur votre dashboard.</p>
+      </div>
+    </>
   )
 }
