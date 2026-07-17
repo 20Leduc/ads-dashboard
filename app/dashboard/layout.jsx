@@ -1,23 +1,20 @@
 import Sidebar from '@/components/layout/Sidebar'
+import DashboardGuard from '@/components/layout/DashboardGuard'
 
 export default function DashboardLayout({ children }) {
   return (
-    <div style={{
-      display: 'flex',
-      minHeight: '100vh',
-      background: '#0a0a0a',
-    }}>
-      <Sidebar />
-      <main style={{
-        marginLeft: '240px',
-        width: 'calc(100% - 240px)',
-        overflowX: 'hidden',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
-        {children}
-      </main>
-    </div>
+    <DashboardGuard>
+      <div style={{ display: 'flex', minHeight: '100vh', background: '#0a0a0a' }}>
+        <Sidebar />
+        <main style={{
+          marginLeft: '240px',
+          flex: 1,
+          width: 'calc(100% - 240px)',
+          overflowX: 'hidden'
+        }}>
+          {children}
+        </main>
+      </div>
+    </DashboardGuard>
   )
 }

@@ -29,7 +29,7 @@ import {
   Bar,
 } from 'recharts'
 
-const COLORS = ['#00D18B', '#FF6B6B', '#FFB347', '#0088FE', '#A78BFA', '#38BDF8', '#FB923C']
+const COLORS = ['#00D18B', '#0088FE', '#FF6B6B', '#FFB347', '#A78BFA', '#888888']
 
 function aggregateBy(data, keyFn) {
   const map = {}
@@ -40,6 +40,17 @@ function aggregateBy(data, keyFn) {
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
+}
+
+function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
+  const sorted = [...data].sort((a, b) => b[valueKey] - a[valueKey])
+  const top5 = sorted.slice(0, 5)
+  const others = sorted.slice(5)
+  const othersTotal = others.reduce((sum, item) => sum + item[valueKey], 0)
+  if (othersTotal > 0) {
+    top5.push({ [nameKey]: 'Autres', [valueKey]: othersTotal })
+  }
+  return top5
 }
 
 function filterByDateRange(leads, start, end) {
@@ -96,44 +107,76 @@ export default function ClosingContent({ leads }) {
   }, [leads, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
   const total = filtered.length
-  const totalRdv = useMemo(
-    () => filtered.filter((d) => d.show_no_show === 'Show' || d.show_no_show === 'No Show').length,
-    [filtered]
-  )
-  const show = useMemo(
-    () => filtered.filter((d) => d.show_no_show === 'Show').length,
-    [filtered]
-  )
-  const noShow = useMemo(
-    () => filtered.filter((d) => d.show_no_show === 'No Show').length,
-    [filtered]
-  )
-  const tauxShow = totalRdv > 0 ? ((show / totalRdv) * 100).toFixed(1) + '%' : '0.0%'
-  const tauxNoShow = totalRdv > 0 ? ((noShow / totalRdv) * 100).toFixed(1) + '%' : '0.0%'
 
-  const dealQualifies = useMemo(
-    () => filtered.filter((d) => d.closing_status === 'Deal Qualifié').length,
+  const leads_qualifies = useMemo(
+    () => filtered.filter(d => d.setting_status === 'Lead qualifié'),
     [filtered]
   )
-  const proposalSent = useMemo(
-    () => filtered.filter((d) => d.closing_status === 'Proposal Sent').length,
+
+  const total_rdv = leads_qualifies.length
+
+  const no_show = useMemo(
+    () => filtered.filter(d => d.closing_status === 'No-Show').length,
     [filtered]
   )
-  const proposalSigned = useMemo(
-    () => filtered.filter((d) => d.closing_status === 'Proposal Signed').length,
-    [filtered]
+
+  const rdv_passes = useMemo(() => filtered.filter(d =>
+    (
+      d.setting_status === 'Lead qualifié' &&
+      ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
+       'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(d.closing_status)
+    ) || (
+      d.closing_status === 'No-Show'
+    )
+  ).length, [filtered])
+
+  const show = rdv_passes - no_show
+
+  const taux_no_show = rdv_passes > 0
+    ? (no_show / rdv_passes * 100).toFixed(1)
+    : 0
+
+  const taux_show = rdv_passes > 0
+    ? (show / rdv_passes * 100).toFixed(1)
+    : 0
+
+  const rdv_en_cours = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Deal').length,
+    [leads_qualifies]
   )
-  const dealWon = useMemo(
-    () => filtered.filter((d) => d.closing_status === 'Deal Won').length,
-    [filtered]
+
+  const deal_qualifies = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Deal Qualifié').length,
+    [leads_qualifies]
   )
-  const dealLost = useMemo(
-    () => filtered.filter((d) => d.closing_status === 'Deal Lost').length,
-    [filtered]
+
+  const proposal_sent = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Proposal Sent').length,
+    [leads_qualifies]
   )
-  const tauxDealQualifies = show > 0 ? ((dealQualifies / show) * 100).toFixed(1) + '%' : '0.0%'
-  const tauxDealWon = dealQualifies > 0 ? ((dealWon / dealQualifies) * 100).toFixed(1) + '%' : '0.0%'
-  const tauxClosingGlobal = total > 0 ? ((dealWon / total) * 100).toFixed(1) + '%' : '0.0%'
+
+  const proposal_signed = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Proposal Signed').length,
+    [leads_qualifies]
+  )
+
+  const deal_won = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Deal Won').length,
+    [leads_qualifies]
+  )
+
+  const deal_lost = useMemo(
+    () => leads_qualifies.filter(d => d.closing_status === 'Deal Lost').length,
+    [leads_qualifies]
+  )
+
+  const taux_deal_qualifie = show > 0
+    ? (deal_qualifies / show * 100).toFixed(1)
+    : 0
+
+  const taux_deal_won = show > 0
+    ? (deal_won / show * 100).toFixed(1)
+    : 0
 
   const dailyData = useMemo(() => {
     const days = {}
@@ -141,9 +184,13 @@ export default function ClosingContent({ leads }) {
       const d = l.event_at?.split('T')[0]
       if (d) {
         if (!days[d]) days[d] = { date: d, show: 0, noShow: 0, dealWon: 0 }
-        if (l.show_no_show === 'Show') days[d].show++
-        else if (l.show_no_show === 'No Show') days[d].noShow++
-        if (l.closing_status === 'Deal Won') days[d].dealWon++
+        if (l.closing_status === 'No-Show') days[d].noShow++
+        else if (
+          l.setting_status === 'Lead qualifié' &&
+          ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
+           'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
+        ) days[d].show++
+        if (l.closing_status?.toLowerCase() === 'deal won') days[d].dealWon++
       }
     })
     return Object.entries(days)
@@ -152,15 +199,12 @@ export default function ClosingContent({ leads }) {
   }, [filtered])
 
   const showNoShowData = useMemo(() => {
-    const map = { Show: 0, 'No Show': 0 }
-    filtered.forEach((l) => {
-      if (l.show_no_show === 'Show') map.Show++
-      else if (l.show_no_show === 'No Show') map['No Show']++
-    })
-    return Object.entries(map)
-      .filter(([, v]) => v > 0)
-      .map(([name, value]) => ({ name, value }))
-  }, [filtered])
+    const data = [
+      { name: 'Show', value: show },
+      { name: 'No Show', value: no_show },
+    ]
+    return data.filter(d => d.value > 0)
+  }, [show, no_show])
 
   const closingStatusData = useMemo(() => {
     const map = {}
@@ -168,23 +212,23 @@ export default function ClosingContent({ leads }) {
       const s = l.closing_status || 'Aucun statut'
       if (s !== 'Aucun statut') map[s] = (map[s] || 0) + 1
     })
-    return Object.entries(map)
+    return getTop5WithOthers(Object.entries(map)
       .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
+      .sort((a, b) => b.value - a.value))
   }, [filtered])
 
   const dealWonByCampaign = useMemo(
-    () => aggregateBy(
-      filtered.filter((d) => d.closing_status === 'Deal Won'),
+    () => getTop5WithOthers(aggregateBy(
+      filtered.filter((d) => d.closing_status?.toLowerCase() === 'deal won'),
       (l) => l.campaign_name
-    ),
+    )),
     [filtered]
   )
   const dealWonByPlatform = useMemo(
-    () => aggregateBy(
-      filtered.filter((d) => d.closing_status === 'Deal Won'),
+    () => getTop5WithOthers(aggregateBy(
+      filtered.filter((d) => d.closing_status?.toLowerCase() === 'deal won'),
       (l) => l.platform
-    ),
+    )),
     [filtered]
   )
 
@@ -193,8 +237,12 @@ export default function ClosingContent({ leads }) {
     filtered.forEach((l) => {
       const c = l.campaign_name || 'N/A'
       if (!map[c]) map[c] = { name: c, Show: 0, 'No Show': 0 }
-      if (l.show_no_show === 'Show') map[c].Show++
-      else if (l.show_no_show === 'No Show') map[c]['No Show']++
+      if (l.closing_status === 'No-Show') map[c]['No Show']++
+      else if (
+        l.setting_status === 'Lead qualifié' &&
+        ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
+         'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
+      ) map[c].Show++
     })
     return Object.values(map).filter((d) => d.Show > 0 || d['No Show'] > 0)
   }, [filtered])
@@ -204,13 +252,19 @@ export default function ClosingContent({ leads }) {
     filtered.forEach((l) => {
       const c = l.campaign_name || 'N/A'
       if (!map[c]) map[c] = { campaign: c, totalRdv: 0, show: 0, noShow: 0, dealQualifies: 0, dealWon: 0 }
-      const isShow = l.show_no_show === 'Show'
-      const isNoShow = l.show_no_show === 'No Show'
-      if (isShow || isNoShow) map[c].totalRdv++
-      if (isShow) map[c].show++
-      if (isNoShow) map[c].noShow++
-      if (l.closing_status === 'Deal Qualifié') map[c].dealQualifies++
-      if (l.closing_status === 'Deal Won') map[c].dealWon++
+      if (l.closing_status === 'No-Show') {
+        map[c].noShow++
+        map[c].totalRdv++
+      } else if (
+        l.setting_status === 'Lead qualifié' &&
+        ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
+         'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
+      ) {
+        map[c].show++
+        map[c].totalRdv++
+      }
+      if (l.closing_status?.toLowerCase() === 'deal qualifié') map[c].dealQualifies++
+      if (l.closing_status?.toLowerCase() === 'deal won') map[c].dealWon++
     })
     return Object.values(map).sort((a, b) => b.dealWon - a.dealWon)
   }, [filtered])
@@ -218,15 +272,17 @@ export default function ClosingContent({ leads }) {
   const funnelSteps = useMemo(() => {
     const steps = [
       { label: 'Total Leads', count: total },
-      { label: 'Total RDV', count: totalRdv },
+      { label: 'Total RDV', count: total_rdv },
+      { label: 'RDV Passés', count: rdv_passes },
       { label: 'Show', count: show },
-      { label: 'Deal Qualifiés', count: dealQualifies },
-      { label: 'Proposal Sent', count: proposalSent },
-      { label: 'Proposal Signed', count: proposalSigned },
-      { label: 'Deal Won', count: dealWon },
+      { label: 'No Show', count: no_show },
+      { label: 'Deal Qualifié', count: deal_qualifies },
+      { label: 'Proposal Sent', count: proposal_sent },
+      { label: 'Proposal Signed', count: proposal_signed },
+      { label: 'Deal Won', count: deal_won },
     ]
     return steps
-  }, [total, totalRdv, show, dealQualifies, proposalSent, proposalSigned, dealWon])
+  }, [total, total_rdv, rdv_passes, show, no_show, deal_qualifies, proposal_sent, proposal_signed, deal_won])
 
   const resetFilters = () => {
     setStartDate('')
@@ -392,19 +448,19 @@ export default function ClosingContent({ leads }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', width: '100%' }}>
-        <KpiCard icon={Calendar} label="Total RDV" value={totalRdv} />
+        <KpiCard icon={Calendar} label="Total RDV" value={total_rdv} />
         <KpiCard icon={UserCheck} label="Show" value={show} valueColor="#00D18B" />
-        <KpiCard icon={UserX} label="No Show" value={noShow} valueColor="#ff4444" />
-        <KpiCard icon={Percent} label="Taux Show" value={tauxShow} valueColor="#00D18B" />
-        <KpiCard icon={Percent} label="Taux No Show" value={tauxNoShow} valueColor="#ff4444" />
+        <KpiCard icon={UserX} label="No Show" value={no_show} valueColor="#ff4444" />
+        <KpiCard icon={Percent} label="Taux Show" value={taux_show + '%'} valueColor="#00D18B" />
+        <KpiCard icon={Percent} label="Taux No Show" value={taux_no_show + '%'} valueColor="#ff4444" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', width: '100%' }}>
-        <KpiCard icon={Briefcase} label="Deal Qualifiés" value={dealQualifies} valueColor="#00D18B" />
-        <KpiCard icon={Send} label="Proposal Sent" value={proposalSent} valueColor="#0088FE" />
-        <KpiCard icon={FileCheck} label="Proposal Signed" value={proposalSigned} valueColor="#A78BFA" />
-        <KpiCard icon={Trophy} label="Deal Won" value={dealWon} valueColor="#00D18B" />
-        <KpiCard icon={TrendingUp} label="Taux Deal Won" value={tauxDealWon} valueColor="#00D18B" />
+        <KpiCard icon={Briefcase} label="Deal Qualifiés" value={deal_qualifies} valueColor="#00D18B" />
+        <KpiCard icon={Send} label="Proposal Sent" value={proposal_sent} valueColor="#0088FE" />
+        <KpiCard icon={FileCheck} label="Proposal Signed" value={proposal_signed} valueColor="#A78BFA" />
+        <KpiCard icon={Trophy} label="Deal Won" value={deal_won} valueColor="#00D18B" />
+        <KpiCard icon={TrendingUp} label="Taux Deal Won" value={taux_deal_won + '%'} valueColor="#00D18B" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: '16px', alignItems: 'stretch', width: '100%' }}>
@@ -485,17 +541,44 @@ export default function ClosingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Show / No Show
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
-              <Pie data={showNoShowData} dataKey="value" nameKey="name" cx="50%" cy="58%" outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+              <Pie data={showNoShowData} dataKey="value" nameKey="name" cx="50%" cy="58%" innerRadius={30} outerRadius={70}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {showNoShowData.map((_, i) => (
                   <Cell key={i} fill={i === 0 ? '#00D18B' : '#ff4444'} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -503,17 +586,44 @@ export default function ClosingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Statuts Closing
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
-              <Pie data={closingStatusData} dataKey="value" nameKey="name" cx="50%" cy="58%" outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+              <Pie data={closingStatusData} dataKey="value" nameKey="name" cx="50%" cy="58%" innerRadius={30} outerRadius={70}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {closingStatusData.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -521,17 +631,44 @@ export default function ClosingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Deal Won par campagne
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
-              <Pie data={dealWonByCampaign} dataKey="value" nameKey="name" cx="50%" cy="58%" outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+              <Pie data={dealWonByCampaign} dataKey="value" nameKey="name" cx="50%" cy="58%" innerRadius={30} outerRadius={70}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {dealWonByCampaign.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -539,17 +676,44 @@ export default function ClosingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Deal Won par plateforme
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
-              <Pie data={dealWonByPlatform} dataKey="value" nameKey="name" cx="50%" cy="58%" outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+              <Pie data={dealWonByPlatform} dataKey="value" nameKey="name" cx="50%" cy="58%" innerRadius={30} outerRadius={70}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {dealWonByPlatform.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>

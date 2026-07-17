@@ -26,10 +26,7 @@ import {
   Bar,
 } from 'recharts'
 
-const DONUT_COLORS = [
-  '#00D18B', '#0088FE', '#FF6B6B', '#FFB347',
-  '#A78BFA', '#38BDF8', '#FB923C',
-]
+const DONUT_COLORS = ['#00D18B', '#0088FE', '#FF6B6B', '#FFB347', '#A78BFA', '#888888']
 
 function aggregateBy(data, keyFn) {
   const map = {}
@@ -40,6 +37,17 @@ function aggregateBy(data, keyFn) {
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
+}
+
+function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
+  const sorted = [...data].sort((a, b) => b[valueKey] - a[valueKey])
+  const top5 = sorted.slice(0, 5)
+  const others = sorted.slice(5)
+  const othersTotal = others.reduce((sum, item) => sum + item[valueKey], 0)
+  if (othersTotal > 0) {
+    top5.push({ [nameKey]: 'Autres', [valueKey]: othersTotal })
+  }
+  return top5
 }
 
 function filterByDateRange(leads, start, end) {
@@ -110,8 +118,6 @@ const FILTER_DEFAULTS = {
   platform: '',
   campaign: '',
   social: '',
-  pipeline: '',
-  statut: '',
 }
 
 export default function AdsContent({ leads }) {
@@ -146,27 +152,11 @@ export default function AdsContent({ leads }) {
     [leads]
   )
 
-  const statutOptions = useMemo(() => {
-    if (input.pipeline === 'Setting') {
-      return ['Lead Qualifié', 'Lead Non qualifié', 'NRP']
-    }
-    if (input.pipeline === 'Closing') {
-      return ['Deal Qualifié', 'Proposal Sent', 'Proposal Signed', 'Deal Won', 'Deal Lost']
-    }
-    return []
-  }, [input.pipeline])
-
   const filteredData = useMemo(() => {
     let data = filterByDateRange(leads, applied.startDate, applied.endDate)
     if (applied.platform) data = data.filter((l) => l.platform === applied.platform)
     if (applied.campaign) data = data.filter((l) => l.campaign_name === applied.campaign)
     if (applied.social) data = data.filter((l) => l.social_network === applied.social)
-    if (applied.pipeline === 'Setting' && applied.statut) {
-      data = data.filter((l) => l.setting_status === applied.statut)
-    }
-    if (applied.pipeline === 'Closing' && applied.statut) {
-      data = data.filter((l) => l.closing_status === applied.statut)
-    }
     return data
   }, [leads, applied])
 
@@ -175,25 +165,34 @@ export default function AdsContent({ leads }) {
     [filteredData]
   )
   const leadsQualifies = useMemo(
-    () => filteredData.filter((l) => l.setting_status === 'Lead Qualifié').length,
-    [filteredData]
-  )
-  const show = useMemo(
-    () => filteredData.filter((l) => l.show_no_show === 'Show').length,
-    [filteredData]
-  )
-  const noShow = useMemo(
-    () => filteredData.filter((l) => l.show_no_show === 'No Show').length,
-    [filteredData]
-  )
-  const dealWon = useMemo(
-    () => filteredData.filter((l) => l.closing_status === 'Deal Won').length,
+    () => filteredData.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié').length,
     [filteredData]
   )
 
-  const totalRdv = show + noShow
+  const no_show = useMemo(
+    () => filteredData.filter((d) => d.closing_status === 'No-Show').length,
+    [filteredData]
+  )
+
+  const rdv_passes = useMemo(() => filteredData.filter((d) =>
+    (
+      d.setting_status === 'Lead qualifié' &&
+      ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
+       'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(d.closing_status)
+    ) || (
+      d.closing_status === 'No-Show'
+    )
+  ).length, [filteredData])
+
+  const show = rdv_passes - no_show
+
+  const dealWon = useMemo(
+    () => filteredData.filter((l) => l.closing_status?.toLowerCase() === 'deal won').length,
+    [filteredData]
+  )
+
   const tauxShow =
-    totalRdv > 0 ? ((show / totalRdv) * 100).toFixed(1) + '%' : '0.0%'
+    rdv_passes > 0 ? ((show / rdv_passes) * 100).toFixed(1) + '%' : '0.0%'
   const tauxClosing =
     totalLeads > 0
       ? ((dealWon / totalLeads) * 100).toFixed(1) + '%'
@@ -223,15 +222,15 @@ export default function AdsContent({ leads }) {
           }
         }
         acc[key].total_leads++
-        if (d.setting_status === 'Lead Qualifié') acc[key].leads_qualifies++
-        if (d.setting_status === 'NRP') acc[key].nrp++
-        if (d.setting_status === 'Lead Non qualifié') acc[key].non_qualifies++
+        if (d.setting_status?.toLowerCase() === 'lead qualifié') acc[key].leads_qualifies++
+        if (d.setting_status?.toLowerCase() === 'nrp') acc[key].nrp++
+        if (d.setting_status?.toLowerCase() === 'lead non qualifié') acc[key].non_qualifies++
         if (d.show_no_show === 'Show') acc[key].show++
         if (d.show_no_show === 'No Show') acc[key].no_show++
-        if (d.closing_status === 'Deal Qualifié') acc[key].deal_qualifies++
-        if (d.closing_status === 'Proposal Sent') acc[key].proposal_sent++
-        if (d.closing_status === 'Proposal Signed') acc[key].proposal_signed++
-        if (d.closing_status === 'Deal Won') acc[key].deal_won++
+        if (d.closing_status?.toLowerCase() === 'deal qualifié') acc[key].deal_qualifies++
+        if (d.closing_status?.toLowerCase() === 'proposal sent') acc[key].proposal_sent++
+        if (d.closing_status?.toLowerCase() === 'proposal signed') acc[key].proposal_signed++
+        if (d.closing_status?.toLowerCase() === 'deal won') acc[key].deal_won++
         return acc
       }, {})
     )
@@ -250,27 +249,27 @@ export default function AdsContent({ leads }) {
   }, [filteredData])
 
   const platformData = useMemo(
-    () => aggregateBy(filteredData, (l) => l.platform),
+    () => getTop5WithOthers(aggregateBy(filteredData, (l) => l.platform)),
     [filteredData]
   )
   const socialData = useMemo(
-    () => aggregateBy(filteredData, (l) => l.social_network),
+    () => getTop5WithOthers(aggregateBy(filteredData, (l) => l.social_network)),
     [filteredData]
   )
   const qualifiesByCampaign = useMemo(
     () =>
-      aggregateBy(
-        filteredData.filter((d) => d.setting_status === 'Lead Qualifié'),
+      getTop5WithOthers(aggregateBy(
+        filteredData.filter((d) => d.setting_status?.toLowerCase() === 'lead qualifié'),
         (l) => l.campaign_name
-      ),
+      )),
     [filteredData]
   )
   const dealWonByCampaign = useMemo(
     () =>
-      aggregateBy(
-        filteredData.filter((d) => d.closing_status === 'Deal Won'),
+      getTop5WithOthers(aggregateBy(
+        filteredData.filter((d) => d.closing_status?.toLowerCase() === 'deal won'),
         (l) => l.campaign_name
-      ),
+      )),
     [filteredData]
   )
 
@@ -282,8 +281,8 @@ export default function AdsContent({ leads }) {
         if (!days[d])
           days[d] = { date: d, Total: 0, Qualifiés: 0, 'Deal Won': 0 }
         if (l.event_type === 'lead_created') days[d].Total++
-        if (l.setting_status === 'Lead Qualifié') days[d].Qualifiés++
-        if (l.closing_status === 'Deal Won') days[d]['Deal Won']++
+        if (l.setting_status?.toLowerCase() === 'lead qualifié') days[d].Qualifiés++
+        if (l.closing_status?.toLowerCase() === 'deal won') days[d]['Deal Won']++
       }
     })
     return Object.entries(days)
@@ -508,40 +507,6 @@ export default function AdsContent({ leads }) {
             flexWrap: 'wrap',
           }}
         >
-          <div>
-            <label style={labelStyle}>Pipeline</label>
-            <select
-              value={input.pipeline}
-              onChange={(e) => {
-                setFilter('pipeline', e.target.value)
-                setFilter('statut', '')
-              }}
-              style={selectStyle}
-            >
-              <option value="">Tous</option>
-              <option value="Setting">Setting</option>
-              <option value="Closing">Closing</option>
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Statut</label>
-            <select
-              value={input.statut}
-              onChange={(e) => setFilter('statut', e.target.value)}
-              style={{
-                ...selectStyle,
-                opacity: !input.pipeline ? 0.5 : 1,
-              }}
-              disabled={!input.pipeline}
-            >
-              <option value="">Tous</option>
-              {statutOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
           <button
             onClick={applyFilters}
             style={{
@@ -746,7 +711,7 @@ export default function AdsContent({ leads }) {
             >
               {title}
             </p>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={data}
@@ -754,10 +719,20 @@ export default function AdsContent({ leads }) {
                   nameKey="name"
                   cx="50%"
                   cy="58%"
+                  innerRadius={30}
                   outerRadius={70}
-                  label={({ name, percent }) =>
-                    `${(percent * 100).toFixed(0)}%`
-                  }
+                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
                 >
                   {data.map((_, i) => (
                     <Cell
@@ -766,16 +741,24 @@ export default function AdsContent({ leads }) {
                     />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} />
-                <Legend
-                  verticalAlign="top"
-                  align="right"
-                  wrapperStyle={{
-                    color: '#888888',
-                    fontSize: '11px',
-                    paddingBottom: '12px',
-                  }}
-                />
+                <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+                <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -828,27 +811,6 @@ export default function AdsContent({ leads }) {
                 <SortableHeader label="Campagne" sortKey="campaign_name" />
                 <SortableHeader label="Adset" sortKey="adset_name" />
 
-                {applied.pipeline === 'Closing' ? (
-                  <>
-                    <SortableHeader label="Show" sortKey="show" />
-                    <SortableHeader label="No Show" sortKey="no_show" />
-                    <SortableHeader label="Taux Show" sortKey="taux_show" />
-                    <SortableHeader
-                      label="Deal Qualifiés"
-                      sortKey="deal_qualifies"
-                    />
-                    <SortableHeader
-                      label="Proposal Sent"
-                      sortKey="proposal_sent"
-                    />
-                    <SortableHeader label="Deal Won" sortKey="deal_won" />
-                    <SortableHeader
-                      label="Taux Closing"
-                      sortKey="taux_deal_won"
-                    />
-                  </>
-                ) : (
-                  <>
                     <SortableHeader label="Total Leads" sortKey="total_leads" />
                     <SortableHeader
                       label="Leads Qualifiés"
@@ -863,13 +825,10 @@ export default function AdsContent({ leads }) {
                       label="Taux Qualif"
                       sortKey="taux_qualification"
                     />
-                  </>
-                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedTableData.map((row, i) => {
-                const mode = applied.pipeline === 'Closing' ? 'closing' : 'setting'
                 const adDisplay =
                   row.ad_name.length > 40
                     ? row.ad_name.slice(0, 40) + '...'
@@ -905,92 +864,6 @@ export default function AdsContent({ leads }) {
                       {row.adset_name || '—'}
                     </TableCell>
 
-                    {mode === 'closing' ? (
-                      <>
-                        <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
-                          {row.show}
-                        </TableCell>
-                        <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
-                          {row.no_show}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: `${getTauxColor(row.taux_show)}20`,
-                              color: getTauxColor(row.taux_show),
-                              borderRadius: '6px',
-                              padding: '3px 10px',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {row.taux_show.toFixed(1)}%
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: '#A78BFA20',
-                              color: '#A78BFA',
-                              borderRadius: '6px',
-                              padding: '3px 10px',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {row.deal_qualifies}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: '#0088FE20',
-                              color: '#0088FE',
-                              borderRadius: '6px',
-                              padding: '3px 10px',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {row.proposal_sent}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: '#00D18B20',
-                              color: '#00D18B',
-                              borderRadius: '6px',
-                              padding: '3px 10px',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {row.deal_won}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              background: `${getTauxColor(row.taux_deal_won)}20`,
-                              color: getTauxColor(row.taux_deal_won),
-                              borderRadius: '6px',
-                              padding: '3px 10px',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {row.taux_deal_won.toFixed(1)}%
-                          </span>
-                        </TableCell>
-                      </>
-                    ) : (
-                      <>
                         <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
                           {row.total_leads}
                         </TableCell>
@@ -1054,8 +927,6 @@ export default function AdsContent({ leads }) {
                             {row.taux_qualification.toFixed(1)}%
                           </span>
                         </TableCell>
-                      </>
-                    )}
                   </TableRow>
                 )
               })}

@@ -9,9 +9,11 @@ import {
   BarChart3,
   DollarSign,
   Settings,
+  Home,
 } from 'lucide-react'
 
 const dashboards = [
+  { label: 'Accueil', href: '/dashboard', icon: Home },
   { label: 'Leads', href: '/dashboard/leads', icon: Users },
   { label: 'Setting', href: '/dashboard/setting', icon: CalendarCheck },
   { label: 'Closing', href: '/dashboard/closing', icon: Handshake },

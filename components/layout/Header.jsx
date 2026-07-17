@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-export default function Header({ title, userEmail }) {
+export default function Header({ clientName }) {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -18,9 +18,13 @@ export default function Header({ title, userEmail }) {
     router.push('/login')
   }
 
-  const initials = userEmail
-    ? userEmail.substring(0, 2).toUpperCase()
-    : 'CL'
+  const displayName = clientName || 'Client'
+  const initials = displayName
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase()
 
   return (
     <header
@@ -29,24 +33,13 @@ export default function Header({ title, userEmail }) {
         borderBottom: '1px solid #1f1f1f',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-end',
         padding: '0 32px',
         background: '#0a0a0a',
         position: 'relative',
         flexShrink: 0,
       }}
     >
-      {/* Breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: '#888888', fontSize: '14px', fontWeight: 400 }}>
-          Dashboards
-        </span>
-        <span style={{ color: '#444444', fontSize: '14px' }}>/</span>
-        <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
-          {title}
-        </span>
-      </div>
-
       {/* Avatar */}
       <div style={{ position: 'relative' }}>
         <button
@@ -97,17 +90,18 @@ export default function Header({ title, userEmail }) {
                 boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
               }}
             >
-              {userEmail && (
+              {clientName && (
                 <div
                   style={{
                     padding: '8px 12px',
-                    color: '#888888',
+                    color: '#ffffff',
                     fontSize: '13px',
+                    fontWeight: 500,
                     borderBottom: '1px solid #1f1f1f',
                     marginBottom: '8px',
                   }}
                 >
-                  {userEmail}
+                  {clientName}
                 </div>
               )}
               <button

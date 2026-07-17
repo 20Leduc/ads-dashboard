@@ -22,10 +22,7 @@ import {
   Legend,
 } from 'recharts'
 
-const DONUT_COLORS = [
-  '#00D18B', '#0088FE', '#FF6B6B', '#FFB347',
-  '#A78BFA', '#38BDF8', '#FB923C',
-]
+const DONUT_COLORS = ['#00D18B', '#0088FE', '#FF6B6B', '#FFB347', '#A78BFA', '#888888']
 
 function aggregateBy(data, keyFn) {
   const map = {}
@@ -36,6 +33,17 @@ function aggregateBy(data, keyFn) {
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
+}
+
+function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
+  const sorted = [...data].sort((a, b) => b[valueKey] - a[valueKey])
+  const top5 = sorted.slice(0, 5)
+  const others = sorted.slice(5)
+  const othersTotal = others.reduce((sum, item) => sum + item[valueKey], 0)
+  if (othersTotal > 0) {
+    top5.push({ [nameKey]: 'Autres', [valueKey]: othersTotal })
+  }
+  return top5
 }
 
 function filterByDateRange(leads, start, end) {
@@ -97,9 +105,9 @@ export default function LeadsContent({ leads }) {
       if (step.type === 'event') {
         count = filtered.filter((l) => l.event_type === step.key).length
       } else if (step.type === 'setting') {
-        count = filtered.filter((l) => l.setting_status === step.key).length
+        count = filtered.filter((l) => l.setting_status?.toLowerCase() === step.key.toLowerCase()).length
       } else {
-        count = filtered.filter((l) => l.closing_status === step.key).length
+        count = filtered.filter((l) => l.closing_status?.toLowerCase() === step.key.toLowerCase()).length
       }
       const rate = i === 0 ? 100 : prev > 0 ? ((count / prev) * 100).toFixed(1) : 0
       prev = count
@@ -119,19 +127,19 @@ export default function LeadsContent({ leads }) {
   }, [filtered])
 
   const campaignData = useMemo(
-    () => aggregateBy(filtered, (l) => l.campaign_name),
+    () => getTop5WithOthers(aggregateBy(filtered, (l) => l.campaign_name)),
     [filtered]
   )
   const platformData = useMemo(
-    () => aggregateBy(filtered, (l) => l.platform),
+    () => getTop5WithOthers(aggregateBy(filtered, (l) => l.platform)),
     [filtered]
   )
   const adsetData = useMemo(
-    () => aggregateBy(filtered, (l) => l.adset_name),
+    () => getTop5WithOthers(aggregateBy(filtered, (l) => l.adset_name)),
     [filtered]
   )
   const adData = useMemo(
-    () => aggregateBy(filtered, (l) => l.ad_name).slice(0, 10),
+    () => getTop5WithOthers(aggregateBy(filtered, (l) => l.ad_name)),
     [filtered]
   )
 
@@ -476,7 +484,7 @@ export default function LeadsContent({ leads }) {
           { title: 'Leads par campagne', data: campaignData },
           { title: 'Leads par plateforme', data: platformData },
           { title: 'Leads par adset', data: adsetData },
-          { title: 'Leads par ad (Top 10)', data: adData },
+          { title: 'Leads par ad', data: adData },
         ].map(({ title, data }) => (
           <div key={title} style={chartCardStyle}>
             <p
@@ -489,7 +497,7 @@ export default function LeadsContent({ leads }) {
             >
               {title}
             </p>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={data}
@@ -497,10 +505,20 @@ export default function LeadsContent({ leads }) {
                   nameKey="name"
                   cx="50%"
                   cy="58%"
+                  innerRadius={30}
                   outerRadius={70}
-                  label={({ name, percent }) =>
-                    `${(percent * 100).toFixed(0)}%`
-                  }
+                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
                 >
                   {data.map((_, i) => (
                     <Cell
@@ -509,12 +527,24 @@ export default function LeadsContent({ leads }) {
                     />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} />
-                <Legend
-                  verticalAlign="top"
-                  align="right"
-                  wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }}
-                />
+                <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+                <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -539,7 +569,20 @@ export default function LeadsContent({ leads }) {
             <XAxis dataKey="name" stroke="#888888" tick={{ fontSize: 12 }} />
             <YAxis stroke="#888888" tick={{ fontSize: 12 }} allowDecimals={false} />
             <Tooltip contentStyle={tooltipStyle} />
-            <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
+            <Legend
+              verticalAlign="top"
+              align="right"
+              content={({ payload }) => (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'flex-start' }}>
+                  {payload.map((entry, i) => (
+                    <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                      <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            />
             {Object.keys(placementBarData[0] || {})
               .filter((k) => k !== 'name')
               .map((key, i) => (

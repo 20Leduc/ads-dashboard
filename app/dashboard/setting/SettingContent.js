@@ -24,10 +24,7 @@ import {
   Legend,
 } from 'recharts'
 
-const DONUT_COLORS = [
-  '#00D18B', '#FF6B6B', '#FFB347', '#0088FE',
-  '#A78BFA', '#38BDF8', '#FB923C',
-]
+const DONUT_COLORS = ['#00D18B', '#0088FE', '#FF6B6B', '#FFB347', '#A78BFA', '#888888']
 
 function aggregateBy(data, keyFn) {
   const map = {}
@@ -38,6 +35,17 @@ function aggregateBy(data, keyFn) {
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
+}
+
+function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
+  const sorted = [...data].sort((a, b) => b[valueKey] - a[valueKey])
+  const top5 = sorted.slice(0, 5)
+  const others = sorted.slice(5)
+  const othersTotal = others.reduce((sum, item) => sum + item[valueKey], 0)
+  if (othersTotal > 0) {
+    top5.push({ [nameKey]: 'Autres', [valueKey]: othersTotal })
+  }
+  return top5
 }
 
 function filterByDateRange(leads, start, end) {
@@ -96,15 +104,15 @@ export default function SettingContent({ leads }) {
   const total = filtered.length
 
   const leadsQualifies = useMemo(
-    () => filtered.filter((l) => l.setting_status === 'Lead Qualifié').length,
+    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié').length,
     [filtered]
   )
   const leadsNonQualifies = useMemo(
-    () => filtered.filter((l) => l.setting_status === 'Lead Non qualifié').length,
+    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead non qualifié').length,
     [filtered]
   )
   const leadsNrp = useMemo(
-    () => filtered.filter((l) => l.setting_status === 'NRP').length,
+    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'nrp').length,
     [filtered]
   )
   const leadsEnAttente = useMemo(
@@ -122,30 +130,32 @@ export default function SettingContent({ leads }) {
       const s = l.setting_status || 'En attente'
       map[s] = (map[s] || 0) + 1
     })
-    return Object.entries(map)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
+    return getTop5WithOthers(
+      Object.entries(map)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+    )
   }, [filtered])
 
   const qualifiesByCampaign = useMemo(
-    () => aggregateBy(
-      filtered.filter((l) => l.setting_status === 'Lead Qualifié'),
+    () => getTop5WithOthers(aggregateBy(
+      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
       (l) => l.campaign_name
-    ),
+    )),
     [filtered]
   )
   const qualifiesByPlatform = useMemo(
-    () => aggregateBy(
-      filtered.filter((l) => l.setting_status === 'Lead Qualifié'),
+    () => getTop5WithOthers(aggregateBy(
+      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
       (l) => l.platform
-    ),
+    )),
     [filtered]
   )
   const qualifiesBySocial = useMemo(
-    () => aggregateBy(
-      filtered.filter((l) => l.setting_status === 'Lead Qualifié'),
+    () => getTop5WithOthers(aggregateBy(
+      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
       (l) => l.social_network
-    ),
+    )),
     [filtered]
   )
 
@@ -155,9 +165,9 @@ export default function SettingContent({ leads }) {
       const d = l.event_at?.split('T')[0]
       if (d) {
         if (!days[d]) days[d] = { date: d, qualifies: 0, nonQualifies: 0, nrp: 0 }
-        if (l.setting_status === 'Lead Qualifié') days[d].qualifies++
-        else if (l.setting_status === 'Lead Non qualifié') days[d].nonQualifies++
-        else if (l.setting_status === 'NRP') days[d].nrp++
+        if (l.setting_status?.toLowerCase() === 'lead qualifié') days[d].qualifies++
+        else if (l.setting_status?.toLowerCase() === 'lead non qualifié') days[d].nonQualifies++
+        else if (l.setting_status?.toLowerCase() === 'nrp') days[d].nrp++
       }
     })
     return Object.entries(days)
@@ -171,9 +181,9 @@ export default function SettingContent({ leads }) {
       const c = l.campaign_name || 'N/A'
       if (!map[c]) map[c] = { campaign: c, total: 0, qualifies: 0, nonQualifies: 0, nrp: 0 }
       map[c].total++
-      if (l.setting_status === 'Lead Qualifié') map[c].qualifies++
-      else if (l.setting_status === 'Lead Non qualifié') map[c].nonQualifies++
-      else if (l.setting_status === 'NRP') map[c].nrp++
+      if (l.setting_status?.toLowerCase() === 'lead qualifié') map[c].qualifies++
+      else if (l.setting_status?.toLowerCase() === 'lead non qualifié') map[c].nonQualifies++
+      else if (l.setting_status?.toLowerCase() === 'nrp') map[c].nrp++
     })
     return Object.values(map).sort((a, b) => b.total - a.total)
   }, [filtered])
@@ -456,7 +466,7 @@ export default function SettingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Répartition par statut
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={statusData}
@@ -464,15 +474,43 @@ export default function SettingContent({ leads }) {
                 nameKey="name"
                 cx="50%"
                 cy="58%"
+                innerRadius={30}
                 outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {statusData.map((_, i) => (
                   <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -480,7 +518,7 @@ export default function SettingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par campagne
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={qualifiesByCampaign}
@@ -488,15 +526,43 @@ export default function SettingContent({ leads }) {
                 nameKey="name"
                 cx="50%"
                 cy="58%"
+                innerRadius={30}
                 outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {qualifiesByCampaign.map((_, i) => (
                   <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -504,7 +570,7 @@ export default function SettingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par plateforme
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={qualifiesByPlatform}
@@ -512,15 +578,43 @@ export default function SettingContent({ leads }) {
                 nameKey="name"
                 cx="50%"
                 cy="58%"
+                innerRadius={30}
                 outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {qualifiesByPlatform.map((_, i) => (
                   <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -528,7 +622,7 @@ export default function SettingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par réseau social
           </p>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={qualifiesBySocial}
@@ -536,15 +630,43 @@ export default function SettingContent({ leads }) {
                 nameKey="name"
                 cx="50%"
                 cy="58%"
+                innerRadius={30}
                 outerRadius={70}
-                label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    const RADIAN = Math.PI / 180
+                    const radius = outerRadius + 15
+                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                    const textAnchor = x > cx ? 'start' : 'end'
+                    return (
+                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
               >
                 {qualifiesBySocial.map((_, i) => (
                   <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-              <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '11px', paddingBottom: '12px' }} />
+              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
+                    const sorted = [...payload].sort((a, b) => {
+                      if (a.value === 'Autres') return 1
+                      if (b.value === 'Autres') return -1
+                      return 0
+                    })
+                    return (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {sorted.map((entry, i) => (
+                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
