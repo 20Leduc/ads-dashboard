@@ -23,7 +23,7 @@ export default function DashboardPage() {
           <iframe
             width="100%"
             height="500"
-            src="https://www.youtube.com/embed/Pi5SVfsRFGU"
+            src="https://www.youtube.com/embed/LcF6ut-1M94"
             style={{ borderRadius: '8px', border: 'none' }}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
