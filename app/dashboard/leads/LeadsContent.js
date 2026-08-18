@@ -6,6 +6,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Users, PenTool, TrendingUp } from 'lucide-react'
 import {
+  countDistinctLeads,
+  dedupeEventsByLead,
+  enrichEventsWithLeadSnapshots,
+  filterEventsByDateRange,
+  splitLeadEvents,
+} from '@/lib/lead-events'
+import {
   LineChart,
   Line,
   Area,
@@ -46,14 +53,6 @@ function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
   return top5
 }
 
-function filterByDateRange(leads, start, end) {
-  return leads.filter((l) => {
-    if (start && l.event_at < start) return false
-    if (end && l.event_at > end + 'T23:59:59') return false
-    return true
-  })
-}
-
 const cardStyle = { background: '#111111', border: '1px solid #1f1f1f' }
 const chartCardStyle = {
   background: '#111111',
@@ -75,13 +74,25 @@ export default function LeadsContent({ leads }) {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
+  const { leadCreatedEvents, settingEvents, closingEvents } = useMemo(
+    () => splitLeadEvents(leads),
+    [leads]
+  )
+  const enrichedSettingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(settingEvents, leadCreatedEvents),
+    [settingEvents, leadCreatedEvents]
+  )
+  const enrichedClosingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(closingEvents, leadCreatedEvents),
+    [closingEvents, leadCreatedEvents]
+  )
   const filtered = useMemo(
-    () => filterByDateRange(leads, startDate, endDate),
-    [leads, startDate, endDate]
+    () => dedupeEventsByLead(filterEventsByDateRange(leadCreatedEvents, startDate, endDate)),
+    [leadCreatedEvents, startDate, endDate]
   )
 
   const totalLeads = useMemo(
-    () => filtered.filter((l) => l.event_type === 'lead_created').length,
+    () => countDistinctLeads(filtered),
     [filtered]
   )
 
@@ -100,20 +111,27 @@ export default function LeadsContent({ leads }) {
       { label: 'Deal Won', key: 'Deal Won', type: 'closing' },
     ]
     let prev = 0
+    const cohortLeadIds = new Set(filtered.map((event) => event.lead_id))
     return steps.map((step, i) => {
       let count
       if (step.type === 'event') {
-        count = filtered.filter((l) => l.event_type === step.key).length
+        count = countDistinctLeads(filtered)
       } else if (step.type === 'setting') {
-        count = filtered.filter((l) => l.setting_status?.toLowerCase() === step.key.toLowerCase()).length
+        count = countDistinctLeads(
+          enrichedSettingEvents,
+          (event) => cohortLeadIds.has(event.lead_id) && event.setting_status?.toLowerCase() === step.key.toLowerCase()
+        )
       } else {
-        count = filtered.filter((l) => l.closing_status?.toLowerCase() === step.key.toLowerCase()).length
+        count = countDistinctLeads(
+          enrichedClosingEvents,
+          (event) => cohortLeadIds.has(event.lead_id) && event.closing_status?.toLowerCase() === step.key.toLowerCase()
+        )
       }
       const rate = i === 0 ? 100 : prev > 0 ? ((count / prev) * 100).toFixed(1) : 0
       prev = count
       return { label: step.label, count, rate }
     })
-  }, [filtered])
+  }, [filtered, enrichedSettingEvents, enrichedClosingEvents])
 
   const dailyData = useMemo(() => {
     const days = {}
@@ -304,8 +322,8 @@ export default function LeadsContent({ leads }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '8px' }}>
             <TrendingUp size={14} color="#00D18B" />
             <span style={{ color: '#00D18B', fontSize: '13px' }}>
-              {leads.length > 0
-                ? `${((totalLeads / leads.length) * 100).toFixed(1)}% du total`
+              {leadCreatedEvents.length > 0
+                ? `${((totalLeads / countDistinctLeads(leadCreatedEvents)) * 100).toFixed(1)}% du total`
                 : ''}
             </span>
           </div>

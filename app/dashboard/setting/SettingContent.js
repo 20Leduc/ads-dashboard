@@ -3,6 +3,14 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
+  countDistinctLeads,
+  dedupeEventsByKey,
+  dedupeEventsByLead,
+  enrichEventsWithLeadSnapshots,
+  filterEventsByDateRange,
+  splitLeadEvents,
+} from '@/lib/lead-events'
+import {
   Users,
   UserCheck,
   UserX,
@@ -48,14 +56,6 @@ function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
   return top5
 }
 
-function filterByDateRange(leads, start, end) {
-  return leads.filter((l) => {
-    if (start && l.event_at < start) return false
-    if (end && l.event_at > end + 'T23:59:59') return false
-    return true
-  })
-}
-
 const chartCardStyle = {
   background: '#111111',
   border: '1px solid #1f1f1f',
@@ -80,6 +80,15 @@ export default function SettingContent({ leads }) {
   const [filterCampaign, setFilterCampaign] = useState('')
   const [filterSocial, setFilterSocial] = useState('')
 
+  const { leadCreatedEvents, settingEvents } = useMemo(
+    () => splitLeadEvents(leads),
+    [leads]
+  )
+  const enrichedSettingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(settingEvents, leadCreatedEvents),
+    [settingEvents, leadCreatedEvents]
+  )
+
   const allPlatforms = useMemo(
     () => [...new Set(leads.map((l) => l.platform).filter(Boolean))].sort(),
     [leads]
@@ -94,29 +103,36 @@ export default function SettingContent({ leads }) {
   )
 
   const filtered = useMemo(() => {
-    let data = filterByDateRange(leads, startDate, endDate)
+    let data = filterEventsByDateRange(enrichedSettingEvents, startDate, endDate)
     if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
     if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
     if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
     return data
-  }, [leads, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
+  }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
-  const total = filtered.length
+  const total = countDistinctLeads(filtered)
+  const uniqueStatusEvents = useMemo(
+    () => dedupeEventsByKey(
+      filtered,
+      (event) => `${event.setting_status || ''}\u0000${event.lead_id}`
+    ),
+    [filtered]
+  )
 
   const leadsQualifies = useMemo(
-    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié').length,
+    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
     [filtered]
   )
   const leadsNonQualifies = useMemo(
-    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead non qualifié').length,
+    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'lead non qualifié'),
     [filtered]
   )
   const leadsNrp = useMemo(
-    () => filtered.filter((l) => l.setting_status?.toLowerCase() === 'nrp').length,
+    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'nrp'),
     [filtered]
   )
   const leadsEnAttente = useMemo(
-    () => filtered.filter((l) => !l.setting_status || l.setting_status === '').length,
+    () => countDistinctLeads(filtered, (l) => !l.setting_status || l.setting_status === ''),
     [filtered]
   )
 
@@ -126,7 +142,7 @@ export default function SettingContent({ leads }) {
 
   const statusData = useMemo(() => {
     const map = {}
-    filtered.forEach((l) => {
+    uniqueStatusEvents.forEach((l) => {
       const s = l.setting_status || 'En attente'
       map[s] = (map[s] || 0) + 1
     })
@@ -135,25 +151,25 @@ export default function SettingContent({ leads }) {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
     )
-  }, [filtered])
+  }, [uniqueStatusEvents])
 
   const qualifiesByCampaign = useMemo(
     () => getTop5WithOthers(aggregateBy(
-      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
       (l) => l.campaign_name
     )),
     [filtered]
   )
   const qualifiesByPlatform = useMemo(
     () => getTop5WithOthers(aggregateBy(
-      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
       (l) => l.platform
     )),
     [filtered]
   )
   const qualifiesBySocial = useMemo(
     () => getTop5WithOthers(aggregateBy(
-      filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
       (l) => l.social_network
     )),
     [filtered]
@@ -161,7 +177,10 @@ export default function SettingContent({ leads }) {
 
   const dailyData = useMemo(() => {
     const days = {}
-    filtered.forEach((l) => {
+    dedupeEventsByKey(
+      filtered,
+      (event) => `${event.event_at?.split('T')[0] || ''}\u0000${event.setting_status || ''}\u0000${event.lead_id}`
+    ).forEach((l) => {
       const d = l.event_at?.split('T')[0]
       if (d) {
         if (!days[d]) days[d] = { date: d, qualifies: 0, nonQualifies: 0, nrp: 0 }
@@ -177,7 +196,10 @@ export default function SettingContent({ leads }) {
 
   const tableData = useMemo(() => {
     const map = {}
-    filtered.forEach((l) => {
+    dedupeEventsByKey(
+      filtered,
+      (event) => `${event.campaign_name || 'N/A'}\u0000${event.setting_status || ''}\u0000${event.lead_id}`
+    ).forEach((l) => {
       const c = l.campaign_name || 'N/A'
       if (!map[c]) map[c] = { campaign: c, total: 0, qualifies: 0, nonQualifies: 0, nrp: 0 }
       map[c].total++

@@ -3,6 +3,15 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
+  countDistinctLeads,
+  dedupeEventsByKey,
+  dedupeEventsByLead,
+  enrichEventsWithLeadSnapshots,
+  filterEventsByDateRange,
+  latestEventByLead,
+  splitLeadEvents,
+} from '@/lib/lead-events'
+import {
   Calendar,
   UserCheck,
   UserX,
@@ -53,14 +62,6 @@ function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
   return top5
 }
 
-function filterByDateRange(leads, start, end) {
-  return leads.filter((l) => {
-    if (start && l.event_at < start) return false
-    if (end && l.event_at > end + 'T23:59:59') return false
-    return true
-  })
-}
-
 const chartCardStyle = {
   background: '#111111',
   border: '1px solid #1f1f1f',
@@ -85,6 +86,19 @@ export default function ClosingContent({ leads }) {
   const [filterCampaign, setFilterCampaign] = useState('')
   const [filterSocial, setFilterSocial] = useState('')
 
+  const { leadCreatedEvents, settingEvents, closingEvents } = useMemo(
+    () => splitLeadEvents(leads),
+    [leads]
+  )
+  const enrichedSettingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(settingEvents, leadCreatedEvents),
+    [settingEvents, leadCreatedEvents]
+  )
+  const enrichedClosingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(closingEvents, leadCreatedEvents),
+    [closingEvents, leadCreatedEvents]
+  )
+
   const allPlatforms = useMemo(
     () => [...new Set(leads.map((l) => l.platform).filter(Boolean))].sort(),
     [leads]
@@ -99,38 +113,70 @@ export default function ClosingContent({ leads }) {
   )
 
   const filtered = useMemo(() => {
-    let data = filterByDateRange(leads, startDate, endDate)
+    let data = filterEventsByDateRange(enrichedClosingEvents, startDate, endDate)
     if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
     if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
     if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
     return data
-  }, [leads, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
+  }, [enrichedClosingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
-  const total = filtered.length
+  const filteredSettingEvents = useMemo(() => {
+    let data = filterEventsByDateRange(enrichedSettingEvents, startDate, endDate)
+    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
+    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
+    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
+    return data
+  }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
-  const leads_qualifies = useMemo(
-    () => filtered.filter(d => d.setting_status === 'Lead qualifié'),
-    [filtered]
+  const firstQualificationByLead = useMemo(() => {
+    const firstByLead = new Map()
+    enrichedSettingEvents.forEach((event) => {
+      if (!event.lead_id || event.setting_status !== 'Lead qualifié') return
+      const timestamp = new Date(event.event_at).getTime()
+      if (Number.isNaN(timestamp)) return
+      const current = firstByLead.get(event.lead_id)
+      if (current === undefined || timestamp < current) firstByLead.set(event.lead_id, timestamp)
+    })
+    return firstByLead
+  }, [enrichedSettingEvents])
+  const qualifiedClosingEvents = useMemo(
+    () => filtered.filter((event) => {
+      const qualificationTime = firstQualificationByLead.get(event.lead_id)
+      const closingTime = new Date(event.event_at).getTime()
+      return qualificationTime !== undefined && !Number.isNaN(closingTime) && closingTime > qualificationTime
+    }),
+    [filtered, firstQualificationByLead]
+  )
+  const total = countDistinctLeads(qualifiedClosingEvents)
+  const uniqueStatusEvents = useMemo(
+    () => dedupeEventsByKey(
+      qualifiedClosingEvents,
+      (event) => `${event.closing_status || ''}\u0000${event.lead_id}`
+    ),
+    [qualifiedClosingEvents]
+  )
+  const passedClosingEvents = useMemo(
+    () => latestEventByLead(qualifiedClosingEvents),
+    [qualifiedClosingEvents]
   )
 
-  const total_rdv = leads_qualifies.length
+  // Un RDV correspond à un lead qualifié par le Setting.
+  const total_rdv = useMemo(
+    () => countDistinctLeads(filteredSettingEvents, d => d.setting_status === 'Lead qualifié'),
+    [filteredSettingEvents]
+  )
 
   const no_show = useMemo(
-    () => filtered.filter(d => d.closing_status === 'No-Show').length,
-    [filtered]
+    () => countDistinctLeads(passedClosingEvents, d => d.closing_status === 'No-Show'),
+    [passedClosingEvents]
   )
 
-  const rdv_passes = useMemo(() => filtered.filter(d =>
-    (
-      d.setting_status === 'Lead qualifié' &&
-      ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
-       'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(d.closing_status)
-    ) || (
-      d.closing_status === 'No-Show'
-    )
-  ).length, [filtered])
+  const rdv_passes = countDistinctLeads(passedClosingEvents)
 
-  const show = rdv_passes - no_show
+  const show = countDistinctLeads(
+    passedClosingEvents,
+    d => d.closing_status !== null && d.closing_status !== '' && d.closing_status !== 'No-Show'
+  )
 
   const taux_no_show = rdv_passes > 0
     ? (no_show / rdv_passes * 100).toFixed(1)
@@ -141,33 +187,33 @@ export default function ClosingContent({ leads }) {
     : 0
 
   const rdv_en_cours = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Deal').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal'),
+    [qualifiedClosingEvents]
   )
 
   const deal_qualifies = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Deal Qualifié').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Qualifié'),
+    [qualifiedClosingEvents]
   )
 
   const proposal_sent = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Proposal Sent').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Proposal Sent'),
+    [qualifiedClosingEvents]
   )
 
   const proposal_signed = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Proposal Signed').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Proposal Signed'),
+    [qualifiedClosingEvents]
   )
 
   const deal_won = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Deal Won').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Won'),
+    [qualifiedClosingEvents]
   )
 
   const deal_lost = useMemo(
-    () => leads_qualifies.filter(d => d.closing_status === 'Deal Lost').length,
-    [leads_qualifies]
+    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Lost'),
+    [qualifiedClosingEvents]
   )
 
   const taux_deal_qualifie = show > 0
@@ -180,23 +226,29 @@ export default function ClosingContent({ leads }) {
 
   const dailyData = useMemo(() => {
     const days = {}
-    filtered.forEach((l) => {
+    passedClosingEvents.forEach((l) => {
       const d = l.event_at?.split('T')[0]
       if (d) {
-        if (!days[d]) days[d] = { date: d, show: 0, noShow: 0, dealWon: 0 }
-        if (l.closing_status === 'No-Show') days[d].noShow++
-        else if (
-          l.setting_status === 'Lead qualifié' &&
-          ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
-           'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
-        ) days[d].show++
-        if (l.closing_status?.toLowerCase() === 'deal won') days[d].dealWon++
+        if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set() }
+        if (l.closing_status === 'No-Show') days[d].noShowIds.add(l.lead_id)
+        else if (l.closing_status) days[d].showIds.add(l.lead_id)
       }
+    })
+    qualifiedClosingEvents.forEach((l) => {
+      const d = l.event_at?.split('T')[0]
+      if (!d || l.closing_status?.toLowerCase() !== 'deal won') return
+      if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set() }
+      days[d].dealWonIds.add(l.lead_id)
     })
     return Object.entries(days)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, v]) => v)
-  }, [filtered])
+      .map(([, value]) => ({
+        date: value.date,
+        show: value.showIds.size,
+        noShow: value.noShowIds.size,
+        dealWon: value.dealWonIds.size,
+      }))
+  }, [passedClosingEvents, qualifiedClosingEvents])
 
   const showNoShowData = useMemo(() => {
     const data = [
@@ -208,66 +260,89 @@ export default function ClosingContent({ leads }) {
 
   const closingStatusData = useMemo(() => {
     const map = {}
-    filtered.forEach((l) => {
+    uniqueStatusEvents.forEach((l) => {
       const s = l.closing_status || 'Aucun statut'
       if (s !== 'Aucun statut') map[s] = (map[s] || 0) + 1
     })
     return getTop5WithOthers(Object.entries(map)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value))
-  }, [filtered])
+  }, [uniqueStatusEvents])
 
   const dealWonByCampaign = useMemo(
     () => getTop5WithOthers(aggregateBy(
-      filtered.filter((d) => d.closing_status?.toLowerCase() === 'deal won'),
+      dedupeEventsByLead(qualifiedClosingEvents.filter((d) => d.closing_status?.toLowerCase() === 'deal won')),
       (l) => l.campaign_name
     )),
-    [filtered]
+    [qualifiedClosingEvents]
   )
   const dealWonByPlatform = useMemo(
     () => getTop5WithOthers(aggregateBy(
-      filtered.filter((d) => d.closing_status?.toLowerCase() === 'deal won'),
+      dedupeEventsByLead(qualifiedClosingEvents.filter((d) => d.closing_status?.toLowerCase() === 'deal won')),
       (l) => l.platform
     )),
-    [filtered]
+    [qualifiedClosingEvents]
   )
 
   const campaignBarData = useMemo(() => {
     const map = {}
-    filtered.forEach((l) => {
+    passedClosingEvents.forEach((l) => {
       const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = { name: c, Show: 0, 'No Show': 0 }
-      if (l.closing_status === 'No-Show') map[c]['No Show']++
-      else if (
-        l.setting_status === 'Lead qualifié' &&
-        ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
-         'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
-      ) map[c].Show++
+      if (!map[c]) map[c] = { name: c, showIds: new Set(), noShowIds: new Set() }
+      if (l.closing_status === 'No-Show') map[c].noShowIds.add(l.lead_id)
+      else if (l.closing_status) map[c].showIds.add(l.lead_id)
     })
-    return Object.values(map).filter((d) => d.Show > 0 || d['No Show'] > 0)
-  }, [filtered])
+    return Object.values(map)
+      .map((value) => ({ name: value.name, Show: value.showIds.size, 'No Show': value.noShowIds.size }))
+      .filter((d) => d.Show > 0 || d['No Show'] > 0)
+  }, [passedClosingEvents])
 
   const tableData = useMemo(() => {
     const map = {}
-    filtered.forEach((l) => {
+    passedClosingEvents.forEach((l) => {
       const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = { campaign: c, totalRdv: 0, show: 0, noShow: 0, dealQualifies: 0, dealWon: 0 }
-      if (l.closing_status === 'No-Show') {
-        map[c].noShow++
-        map[c].totalRdv++
-      } else if (
-        l.setting_status === 'Lead qualifié' &&
-        ['Deal Qualifié', 'Deal Non Qualifié', 'Proposal Sent',
-         'Proposal Signed', 'Deal Won', 'Deal Lost'].includes(l.closing_status)
-      ) {
-        map[c].show++
-        map[c].totalRdv++
+      if (!map[c]) map[c] = {
+        campaign: c,
+        appointmentIds: new Set(),
+        showIds: new Set(),
+        noShowIds: new Set(),
+        dealQualifiedIds: new Set(), dealWonIds: new Set(),
       }
-      if (l.closing_status?.toLowerCase() === 'deal qualifié') map[c].dealQualifies++
-      if (l.closing_status?.toLowerCase() === 'deal won') map[c].dealWon++
+      if (l.closing_status === 'No-Show') {
+        map[c].noShowIds.add(l.lead_id)
+      } else if (l.closing_status) {
+        map[c].showIds.add(l.lead_id)
+      }
     })
-    return Object.values(map).sort((a, b) => b.dealWon - a.dealWon)
-  }, [filtered])
+    qualifiedClosingEvents.forEach((l) => {
+      const c = l.campaign_name || 'N/A'
+      if (!map[c]) map[c] = {
+        campaign: c, appointmentIds: new Set(), showIds: new Set(), noShowIds: new Set(),
+        dealQualifiedIds: new Set(), dealWonIds: new Set(),
+      }
+      if (l.closing_status?.toLowerCase() === 'deal qualifié') map[c].dealQualifiedIds.add(l.lead_id)
+      if (l.closing_status?.toLowerCase() === 'deal won') map[c].dealWonIds.add(l.lead_id)
+    })
+    filteredSettingEvents.forEach((l) => {
+      if (l.setting_status !== 'Lead qualifié') return
+      const c = l.campaign_name || 'N/A'
+      if (!map[c]) map[c] = {
+        campaign: c, appointmentIds: new Set(), showIds: new Set(), noShowIds: new Set(),
+        dealQualifiedIds: new Set(), dealWonIds: new Set(),
+      }
+      map[c].appointmentIds.add(l.lead_id)
+    })
+    return Object.values(map)
+      .map((value) => ({
+        campaign: value.campaign,
+        totalRdv: value.appointmentIds.size,
+        show: value.showIds.size,
+        noShow: value.noShowIds.size,
+        dealQualifies: value.dealQualifiedIds.size,
+        dealWon: value.dealWonIds.size,
+      }))
+      .sort((a, b) => b.dealWon - a.dealWon)
+  }, [filteredSettingEvents, passedClosingEvents, qualifiedClosingEvents])
 
   const funnelSteps = useMemo(() => {
     const steps = [
@@ -275,14 +350,13 @@ export default function ClosingContent({ leads }) {
       { label: 'Total RDV', count: total_rdv },
       { label: 'RDV Passés', count: rdv_passes },
       { label: 'Show', count: show },
-      { label: 'No Show', count: no_show },
       { label: 'Deal Qualifié', count: deal_qualifies },
       { label: 'Proposal Sent', count: proposal_sent },
       { label: 'Proposal Signed', count: proposal_signed },
       { label: 'Deal Won', count: deal_won },
     ]
     return steps
-  }, [total, total_rdv, rdv_passes, show, no_show, deal_qualifies, proposal_sent, proposal_signed, deal_won])
+  }, [total, total_rdv, rdv_passes, show, deal_qualifies, proposal_sent, proposal_signed, deal_won])
 
   const resetFilters = () => {
     setStartDate('')

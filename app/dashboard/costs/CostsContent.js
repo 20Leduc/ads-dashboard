@@ -3,6 +3,14 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
+  countDistinctLeads,
+  dedupeEventsByLead,
+  enrichEventsWithLeadSnapshots,
+  filterEventsByDateRange,
+  latestEventByLead,
+  splitLeadEvents,
+} from '@/lib/lead-events'
+import {
   DollarSign,
   TrendingDown,
   Target,
@@ -140,22 +148,24 @@ const CustomLabel = ({ x, width, value }) => {
   )
 }
 
-function filterByDateRange(leads, start, end) {
-  return leads.filter((l) => {
-    if (start && l.event_at < start) return false
-    if (end && l.event_at > end + 'T23:59:59') return false
+function filterSpend(spend, filters) {
+  const hasPlatform = spend.some((row) => row.platform !== null && row.platform !== undefined)
+  const hasSocial = spend.some((row) => row.social_network !== null && row.social_network !== undefined)
+  return spend.filter((d) => {
+    const date = d.spend_date?.split('T')[0]
+    if (date && filters.startDate && date < filters.startDate) return false
+    if (date && filters.endDate && date > filters.endDate) return false
+    if (filters.platform && hasPlatform && d.platform !== filters.platform) return false
+    if (filters.social && hasSocial && d.social_network !== filters.social) return false
     return true
   })
 }
 
-function filterSpendByDateRange(spend, start, end) {
-  return spend.filter((d) => {
-    const date = d.spend_date?.split('T')[0]
-    if (!date) return true
-    if (start && date < start) return false
-    if (end && date > end) return false
-    return true
-  })
+function filterEventDimensions(events, filters) {
+  let data = filterEventsByDateRange(events, filters.startDate, filters.endDate)
+  if (filters.platform) data = data.filter((event) => event.platform === filters.platform)
+  if (filters.social) data = data.filter((event) => event.social_network === filters.social)
+  return data
 }
 
 function KpiCard({ icon: Icon, label, value, sub }) {
@@ -217,6 +227,19 @@ export default function CostsContent({ spendData, leadsData }) {
   const [input, setInput] = useState({ ...FILTER_DEFAULTS })
   const [applied, setApplied] = useState({ ...FILTER_DEFAULTS })
 
+  const { leadCreatedEvents, settingEvents, closingEvents } = useMemo(
+    () => splitLeadEvents(leadsData),
+    [leadsData]
+  )
+  const enrichedSettingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(settingEvents, leadCreatedEvents),
+    [settingEvents, leadCreatedEvents]
+  )
+  const enrichedClosingEvents = useMemo(
+    () => enrichEventsWithLeadSnapshots(closingEvents, leadCreatedEvents),
+    [closingEvents, leadCreatedEvents]
+  )
+
   const allPlatforms = useMemo(
     () => [...new Set(leadsData.map((l) => l.platform).filter(Boolean))].sort(),
     [leadsData]
@@ -239,15 +262,25 @@ export default function CostsContent({ spendData, leadsData }) {
     setApplied({ ...FILTER_DEFAULTS })
   }
 
-  const filteredLeads = useMemo(() => {
-    let data = filterByDateRange(leadsData, applied.startDate, applied.endDate)
-    if (applied.platform) data = data.filter((l) => l.platform === applied.platform)
-    if (applied.social) data = data.filter((l) => l.social_network === applied.social)
-    return data
-  }, [leadsData, applied])
+  const filteredLeads = useMemo(
+    () => dedupeEventsByLead(filterEventDimensions(leadCreatedEvents, applied)),
+    [leadCreatedEvents, applied]
+  )
+  const filteredSettingEvents = useMemo(
+    () => filterEventDimensions(enrichedSettingEvents, applied),
+    [enrichedSettingEvents, applied]
+  )
+  const filteredClosingEvents = useMemo(
+    () => filterEventDimensions(enrichedClosingEvents, applied),
+    [enrichedClosingEvents, applied]
+  )
+  const latestClosingEvents = useMemo(
+    () => latestEventByLead(filteredClosingEvents),
+    [filteredClosingEvents]
+  )
 
   const filteredSpend = useMemo(
-    () => filterSpendByDateRange(spendData, applied.startDate, applied.endDate),
+    () => filterSpend(spendData, applied),
     [spendData, applied]
   )
 
@@ -264,36 +297,36 @@ export default function CostsContent({ spendData, leadsData }) {
   const cpmCount = filteredSpend.length
   const avgCpm = cpmCount > 0 ? cpmSum / cpmCount : 0
 
-  const totalLeads = filteredLeads.length
+  const totalLeads = countDistinctLeads(filteredLeads)
 
   const totalRdv = useMemo(
-    () => filteredLeads.filter((l) => ['Show', 'No Show'].includes(l.show_no_show)).length,
-    [filteredLeads]
+    () => countDistinctLeads(latestClosingEvents, (l) => Boolean(l.closing_status)),
+    [latestClosingEvents]
   )
 
   const show = useMemo(
-    () => filteredLeads.filter((l) => l.show_no_show === 'Show').length,
-    [filteredLeads]
+    () => countDistinctLeads(latestClosingEvents, (l) => Boolean(l.closing_status) && l.closing_status !== 'No-Show'),
+    [latestClosingEvents]
   )
 
   const noShow = useMemo(
-    () => filteredLeads.filter((l) => l.show_no_show === 'No Show').length,
-    [filteredLeads]
+    () => countDistinctLeads(latestClosingEvents, (l) => l.closing_status === 'No-Show'),
+    [latestClosingEvents]
   )
 
   const dealQualifies = useMemo(
-    () => filteredLeads.filter((l) => l.closing_status?.toLowerCase() === 'deal qualifié').length,
-    [filteredLeads]
+    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'deal qualifié'),
+    [filteredClosingEvents]
   )
 
   const proposalSent = useMemo(
-    () => filteredLeads.filter((l) => l.closing_status?.toLowerCase() === 'proposal sent').length,
-    [filteredLeads]
+    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'proposal sent'),
+    [filteredClosingEvents]
   )
 
   const dealWon = useMemo(
-    () => filteredLeads.filter((l) => l.closing_status?.toLowerCase() === 'deal won').length,
-    [filteredLeads]
+    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'deal won'),
+    [filteredClosingEvents]
   )
 
   const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0
@@ -320,32 +353,32 @@ export default function CostsContent({ spendData, leadsData }) {
 
   const settingCostData = useMemo(() => {
     return SETTING_STATUSES.map((status) => {
-      const count = filteredLeads.filter((l) => l.setting_status?.toLowerCase() === status?.toLowerCase()).length
+      const count = countDistinctLeads(filteredSettingEvents, (l) => l.setting_status?.toLowerCase() === status?.toLowerCase())
       return {
         status,
         count,
         cost: count > 0 ? totalSpend / count : 0,
       }
     }).filter((d) => d.count > 0)
-  }, [filteredLeads, totalSpend])
+  }, [filteredSettingEvents, totalSpend])
 
   const closingCostData = useMemo(() => {
     return CLOSING_STATUSES.map((status) => {
-      const count = filteredLeads.filter((l) => l.closing_status?.toLowerCase() === status?.toLowerCase()).length
+      const count = countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === status?.toLowerCase())
       return {
         status,
         count,
         cost: count > 0 ? totalSpend / count : 0,
       }
     }).filter((d) => d.count > 0)
-  }, [filteredLeads, totalSpend])
+  }, [filteredClosingEvents, totalSpend])
 
   const campaignCplData = useMemo(() => {
     const leadsMap = {}
     filteredLeads.forEach((l) => {
       const name = l.campaign_name || 'N/A'
-      if (!leadsMap[name]) leadsMap[name] = 0
-      leadsMap[name]++
+      if (!leadsMap[name]) leadsMap[name] = new Set()
+      leadsMap[name].add(l.lead_id)
     })
 
     const spendMap = {}
@@ -359,10 +392,10 @@ export default function CostsContent({ spendData, leadsData }) {
     return Array.from(allNames)
       .map((name) => {
         const s = spendMap[name] || 0
-        const l = leadsMap[name] || 0
+        const leadCount = leadsMap[name]?.size || 0
         return {
           campaign: name,
-          cpl: l > 0 ? s / l : 0,
+          cpl: leadCount > 0 ? s / leadCount : 0,
         }
       })
       .filter((d) => d.cpl > 0)
@@ -379,31 +412,37 @@ export default function CostsContent({ spendData, leadsData }) {
     })
 
     const leadsMap = {}
-    filteredLeads.forEach((l) => {
+    filteredSettingEvents.forEach((l) => {
       const name = l.campaign_name || 'N/A'
-      if (!leadsMap[name]) leadsMap[name] = { qualified: 0, dealWon: 0 }
-      if (l.setting_status?.toLowerCase() === 'lead qualifié') leadsMap[name].qualified++
-      if (l.closing_status?.toLowerCase() === 'deal won') leadsMap[name].dealWon++
+      if (!leadsMap[name]) leadsMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
+      if (l.setting_status?.toLowerCase() === 'lead qualifié') leadsMap[name].qualifiedIds.add(l.lead_id)
+    })
+    filteredClosingEvents.forEach((l) => {
+      const name = l.campaign_name || 'N/A'
+      if (!leadsMap[name]) leadsMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
+      if (l.closing_status?.toLowerCase() === 'deal won') leadsMap[name].dealWonIds.add(l.lead_id)
     })
 
     const allNames = new Set([...Object.keys(spendMap), ...Object.keys(leadsMap)])
     return Array.from(allNames)
       .map((name) => {
         const s = spendMap[name] || { spend: 0, leads: 0 }
-        const l = leadsMap[name] || { qualified: 0, dealWon: 0 }
+        const l = leadsMap[name] || { qualifiedIds: new Set(), dealWonIds: new Set() }
+        const qualified = l.qualifiedIds.size
+        const campaignDealWon = l.dealWonIds.size
         return {
           campaign: name,
           spend: s.spend,
           leads: s.leads,
           cpl: s.leads > 0 ? s.spend / s.leads : 0,
-          qualified: l.qualified,
-          cpql: l.qualified > 0 ? s.spend / l.qualified : 0,
-          dealWon: l.dealWon,
-          cpDealWon: l.dealWon > 0 ? s.spend / l.dealWon : 0,
+          qualified,
+          cpql: qualified > 0 ? s.spend / qualified : 0,
+          dealWon: campaignDealWon,
+          cpDealWon: campaignDealWon > 0 ? s.spend / campaignDealWon : 0,
         }
       })
       .sort((a, b) => b.spend - a.spend)
-  }, [filteredSpend, filteredLeads])
+  }, [filteredSpend, filteredSettingEvents, filteredClosingEvents])
 
   const IconsRow1 = [DollarSign, TrendingDown, Target]
   const IconsRow2 = [Calendar, UserCheck, Trophy]
