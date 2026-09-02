@@ -73,6 +73,61 @@ const tooltipStyle = {
   fontSize: '13px',
 }
 
+function DonutWithLegend({ data }) {
+  const sortedLegend = [...data].sort((a, b) => {
+    if (a.name === 'Autres') return 1
+    if (b.name === 'Autres') return -1
+    return 0
+  })
+  return (
+    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, flex: '0 0 42%', minWidth: 0 }}>
+        {sortedLegend.map((entry, i) => {
+          const colorIndex = data.findIndex((d) => d.name === entry.name)
+          return (
+            <li key={i} title={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', minWidth: 0 }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: DONUT_COLORS[colorIndex % DONUT_COLORS.length], display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ color: '#ffffff', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
+            </li>
+          )
+        })}
+      </ul>
+      <div style={{ flex: '1 1 58%', minWidth: 0 }}>
+        <ResponsiveContainer width="100%" height={280}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={30}
+              outerRadius={70}
+              label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                const RADIAN = Math.PI / 180
+                const radius = outerRadius + 15
+                const x = cx + radius * Math.cos(-midAngle * RADIAN)
+                const y = cy + radius * Math.sin(-midAngle * RADIAN)
+                const textAnchor = x > cx ? 'start' : 'end'
+                return (
+                  <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
+                    {`${(percent * 100).toFixed(0)}%`}
+                  </text>
+                )
+              }}
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingContent({ leads }) {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -488,209 +543,25 @@ export default function SettingContent({ leads }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Répartition par statut
           </p>
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={statusData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="58%"
-                innerRadius={30}
-                outerRadius={70}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                    const RADIAN = Math.PI / 180
-                    const radius = outerRadius + 15
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-                    const textAnchor = x > cx ? 'start' : 'end'
-                    return (
-                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
-                        {`${(percent * 100).toFixed(0)}%`}
-                      </text>
-                    )
-                  }}
-              >
-                {statusData.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
-              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
-                    const sorted = [...payload].sort((a, b) => {
-                      if (a.value === 'Autres') return 1
-                      if (b.value === 'Autres') return -1
-                      return 0
-                    })
-                    return (
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {sorted.map((entry, i) => (
-                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )
-                  }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <DonutWithLegend data={statusData} />
         </div>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par campagne
           </p>
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={qualifiesByCampaign}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="58%"
-                innerRadius={30}
-                outerRadius={70}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                    const RADIAN = Math.PI / 180
-                    const radius = outerRadius + 15
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-                    const textAnchor = x > cx ? 'start' : 'end'
-                    return (
-                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
-                        {`${(percent * 100).toFixed(0)}%`}
-                      </text>
-                    )
-                  }}
-              >
-                {qualifiesByCampaign.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
-              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
-                    const sorted = [...payload].sort((a, b) => {
-                      if (a.value === 'Autres') return 1
-                      if (b.value === 'Autres') return -1
-                      return 0
-                    })
-                    return (
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {sorted.map((entry, i) => (
-                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )
-                  }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <DonutWithLegend data={qualifiesByCampaign} />
         </div>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par plateforme
           </p>
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={qualifiesByPlatform}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="58%"
-                innerRadius={30}
-                outerRadius={70}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                    const RADIAN = Math.PI / 180
-                    const radius = outerRadius + 15
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-                    const textAnchor = x > cx ? 'start' : 'end'
-                    return (
-                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
-                        {`${(percent * 100).toFixed(0)}%`}
-                      </text>
-                    )
-                  }}
-              >
-                {qualifiesByPlatform.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
-              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
-                    const sorted = [...payload].sort((a, b) => {
-                      if (a.value === 'Autres') return 1
-                      if (b.value === 'Autres') return -1
-                      return 0
-                    })
-                    return (
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {sorted.map((entry, i) => (
-                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )
-                  }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <DonutWithLegend data={qualifiesByPlatform} />
         </div>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Qualifiés par réseau social
           </p>
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={qualifiesBySocial}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="58%"
-                innerRadius={30}
-                outerRadius={70}
-                label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                    const RADIAN = Math.PI / 180
-                    const radius = outerRadius + 15
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-                    const textAnchor = x > cx ? 'start' : 'end'
-                    return (
-                      <text x={x} y={y} fill="#ffffff" textAnchor={textAnchor} dominantBaseline="central" fontSize={10}>
-                        {`${(percent * 100).toFixed(0)}%`}
-                      </text>
-                    )
-                  }}
-              >
-                {qualifiesBySocial.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value, name) => [value, name]} contentStyle={{ background: '#161616', border: '1px solid #2f2f2f', borderRadius: '8px', color: '#ffffff' }} />
-              <Legend verticalAlign="top" align="left" layout="vertical" content={({ payload }) => {
-                    const sorted = [...payload].sort((a, b) => {
-                      if (a.value === 'Autres') return 1
-                      if (b.value === 'Autres') return -1
-                      return 0
-                    })
-                    return (
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {sorted.map((entry, i) => (
-                          <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: entry.color, display: 'inline-block', flexShrink: 0 }} />
-                            <span style={{ color: '#ffffff', fontSize: '12px' }}>{entry.value}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )
-                  }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <DonutWithLegend data={qualifiesBySocial} />
         </div>
       </div>
 
