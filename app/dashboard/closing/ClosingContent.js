@@ -167,14 +167,6 @@ export default function ClosingContent({ leads }) {
     [leads]
   )
 
-  const filtered = useMemo(() => {
-    let data = filterEventsByDateRange(enrichedClosingEvents, startDate, endDate)
-    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
-    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
-    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
-    return data
-  }, [enrichedClosingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
-
   const filteredSettingEvents = useMemo(() => {
     let data = filterEventsByDateRange(enrichedSettingEvents, startDate, endDate)
     if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
@@ -194,13 +186,24 @@ export default function ClosingContent({ leads }) {
     })
     return firstByLead
   }, [enrichedSettingEvents])
+  // Cohorte : leads qualifiés en Setting pendant la période filtrée. On regarde
+  // ensuite leur issue Closing réelle, même si elle survient après la période.
+  const cohortLeadIds = useMemo(
+    () => new Set(
+      filteredSettingEvents
+        .filter((event) => event.setting_status === 'Lead qualifié')
+        .map((event) => event.lead_id)
+    ),
+    [filteredSettingEvents]
+  )
   const qualifiedClosingEvents = useMemo(
-    () => filtered.filter((event) => {
+    () => enrichedClosingEvents.filter((event) => {
+      if (!cohortLeadIds.has(event.lead_id)) return false
       const qualificationTime = firstQualificationByLead.get(event.lead_id)
       const closingTime = new Date(event.event_at).getTime()
       return qualificationTime !== undefined && !Number.isNaN(closingTime) && closingTime > qualificationTime
     }),
-    [filtered, firstQualificationByLead]
+    [enrichedClosingEvents, cohortLeadIds, firstQualificationByLead]
   )
   const total = countDistinctLeads(qualifiedClosingEvents)
   const uniqueStatusEvents = useMemo(
@@ -215,11 +218,8 @@ export default function ClosingContent({ leads }) {
     [qualifiedClosingEvents]
   )
 
-  // Un RDV correspond à un lead qualifié par le Setting.
-  const total_rdv = useMemo(
-    () => countDistinctLeads(filteredSettingEvents, d => d.setting_status === 'Lead qualifié'),
-    [filteredSettingEvents]
-  )
+  // Un RDV correspond à un lead qualifié par le Setting pendant la période (cohorte).
+  const total_rdv = cohortLeadIds.size
 
   const no_show = useMemo(
     () => countDistinctLeads(passedClosingEvents, d => d.closing_status === 'No-Show'),
