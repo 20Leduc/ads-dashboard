@@ -10,6 +10,7 @@ import {
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
   filterEventsByDateRange,
+  latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -101,35 +102,62 @@ export default function LeadsContent({ leads }) {
     [filtered]
   )
 
+  // Rang de qualification par lead : atteindre le pipeline Closing (Deal, Deal
+  // Qualifié, Deal Won, Deal Lost, No-Show...) implique d'avoir été qualifié, même si
+  // le deal a échoué depuis — donc le dernier événement Closing prime, qu'il ait un
+  // statut ou non : un événement Closing explicitement "vide" marque qu'un lead a été
+  // retiré du pipeline Closing (repassé en suivi Setting) et fait retomber le rang sur
+  // son statut Setting. On ne compare jamais les dates entre Setting et Closing pour
+  // deviner une régression — ces deux flux ne sont pas horodatés de façon homogène.
+  // Ça garantit structurellement Deal Qualifié ⊆ Lead Qualifié ⊆ Leads.
   const funnelData = useMemo(() => {
-    const steps = [
-      { label: 'Leads', key: 'lead_created', type: 'event' },
-      { label: 'Lead Qualifié', key: 'Lead Qualifié', type: 'setting' },
-      { label: 'Deal Qualifié', key: 'Deal Qualifié', type: 'closing' },
-      { label: 'Proposal Sent', key: 'Proposal Sent', type: 'closing' },
-      { label: 'Proposal Signed', key: 'Proposal Signed', type: 'closing' },
-      { label: 'Deal Won', key: 'Deal Won', type: 'closing' },
-    ]
-    let prev = 0
     const cohortLeadIds = new Set(filtered.map((event) => event.lead_id))
+    const latestSettingByLead = new Map(
+      latestEventByLead(enrichedSettingEvents.filter((e) => cohortLeadIds.has(e.lead_id) && e.setting_status))
+        .map((e) => [e.lead_id, e])
+    )
+    // Dernier événement Closing, statut ou non (un statut null marque une clôture explicite).
+    const latestClosingAnyByLead = new Map(
+      latestEventByLead(enrichedClosingEvents.filter((e) => cohortLeadIds.has(e.lead_id)))
+        .map((e) => [e.lead_id, e])
+    )
+
+    function closingRank(status) {
+      const s = status.toLowerCase()
+      if (s === 'deal won') return 3
+      if (s === 'deal qualifié') return 2
+      return 1 // Deal Lost, No-Show, Deal, Deal Non Qualifié: implique d'avoir été qualifié
+    }
+
+    function rankOf(leadId) {
+      const closing = latestClosingAnyByLead.get(leadId)
+      if (closing && closing.closing_status) return closingRank(closing.closing_status)
+      const setting = latestSettingByLead.get(leadId)
+      return setting?.setting_status.toLowerCase() === 'lead qualifié' ? 1 : 0
+    }
+
+    let leadQualifie = 0
+    let dealQualifie = 0
+    let dealWon = 0
+    cohortLeadIds.forEach((leadId) => {
+      const rank = rankOf(leadId)
+      if (rank >= 1) leadQualifie++
+      if (rank >= 2) dealQualifie++
+      if (rank >= 3) dealWon++
+    })
+
+    const steps = [
+      { label: 'Leads', count: cohortLeadIds.size },
+      { label: 'Lead Qualifié', count: leadQualifie },
+      { label: 'Deal Qualifié', count: dealQualifie },
+      { label: 'Deal Won', count: dealWon },
+    ]
+
+    let prev = 0
     return steps.map((step, i) => {
-      let count
-      if (step.type === 'event') {
-        count = countDistinctLeads(filtered)
-      } else if (step.type === 'setting') {
-        count = countDistinctLeads(
-          enrichedSettingEvents,
-          (event) => cohortLeadIds.has(event.lead_id) && event.setting_status?.toLowerCase() === step.key.toLowerCase()
-        )
-      } else {
-        count = countDistinctLeads(
-          enrichedClosingEvents,
-          (event) => cohortLeadIds.has(event.lead_id) && event.closing_status?.toLowerCase() === step.key.toLowerCase()
-        )
-      }
-      const rate = i === 0 ? 100 : prev > 0 ? ((count / prev) * 100).toFixed(1) : 0
-      prev = count
-      return { label: step.label, count, rate }
+      const rate = i === 0 ? 100 : prev > 0 ? ((step.count / prev) * 100).toFixed(1) : 0
+      prev = step.count
+      return { ...step, rate }
     })
   }, [filtered, enrichedSettingEvents, enrichedClosingEvents])
 

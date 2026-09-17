@@ -17,8 +17,6 @@ import {
   UserX,
   Percent,
   Briefcase,
-  Send,
-  FileCheck,
   Trophy,
   TrendingUp,
 } from 'lucide-react'
@@ -226,7 +224,9 @@ export default function ClosingContent({ leads }) {
     [passedClosingEvents]
   )
 
-  const rdv_passes = countDistinctLeads(passedClosingEvents)
+  // Un événement Closing "vide" marque une clôture explicite (lead retiré du pipeline
+  // Closing) — il ne doit jamais compter comme un RDV passé résolu.
+  const rdv_passes = countDistinctLeads(passedClosingEvents, d => Boolean(d.closing_status))
 
   const show = countDistinctLeads(
     passedClosingEvents,
@@ -248,16 +248,6 @@ export default function ClosingContent({ leads }) {
 
   const deal_qualifies = useMemo(
     () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Qualifié'),
-    [qualifiedClosingEvents]
-  )
-
-  const proposal_sent = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Proposal Sent'),
-    [qualifiedClosingEvents]
-  )
-
-  const proposal_signed = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Proposal Signed'),
     [qualifiedClosingEvents]
   )
 
@@ -406,12 +396,10 @@ export default function ClosingContent({ leads }) {
       { label: 'RDV Passés', count: rdv_passes },
       { label: 'Show', count: show },
       { label: 'Deal Qualifié', count: deal_qualifies },
-      { label: 'Proposal Sent', count: proposal_sent },
-      { label: 'Proposal Signed', count: proposal_signed },
       { label: 'Deal Won', count: deal_won },
     ]
     return steps
-  }, [total, total_rdv, rdv_passes, show, deal_qualifies, proposal_sent, proposal_signed, deal_won])
+  }, [total, total_rdv, rdv_passes, show, deal_qualifies, deal_won])
 
   const resetFilters = () => {
     setStartDate('')
@@ -586,8 +574,6 @@ export default function ClosingContent({ leads }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', width: '100%' }}>
         <KpiCard icon={Briefcase} label="Deal Qualifiés" value={deal_qualifies} valueColor="#00D18B" />
-        <KpiCard icon={Send} label="Proposal Sent" value={proposal_sent} valueColor="#0088FE" />
-        <KpiCard icon={FileCheck} label="Proposal Signed" value={proposal_signed} valueColor="#A78BFA" />
         <KpiCard icon={Trophy} label="Deal Won" value={deal_won} valueColor="#00D18B" />
         <KpiCard icon={TrendingUp} label="Taux Deal Won" value={taux_deal_won + '%'} valueColor="#00D18B" />
       </div>
