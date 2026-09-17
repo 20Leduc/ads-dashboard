@@ -103,22 +103,16 @@ export default function LeadsContent({ leads }) {
   )
 
   // Rang de qualification par lead : atteindre le pipeline Closing (Deal, Deal
-  // Qualifié, Deal Won, Deal Lost, No-Show...) implique d'avoir été qualifié, même si
-  // le deal a échoué depuis — donc le dernier événement Closing prime, qu'il ait un
-  // statut ou non : un événement Closing explicitement "vide" marque qu'un lead a été
-  // retiré du pipeline Closing (repassé en suivi Setting) et fait retomber le rang sur
-  // son statut Setting. On ne compare jamais les dates entre Setting et Closing pour
-  // deviner une régression — ces deux flux ne sont pas horodatés de façon homogène.
+  // Qualifié, Deal Won, Deal Lost, No-Show...) implique d'avoir été qualifié, et ça
+  // reste acquis pour toujours — même si le deal est ensuite recyclé en suivi Setting
+  // ou a échoué. On prend donc le rang Closing le plus HAUT jamais atteint (pas le
+  // dernier événement). Un lead qui n'a jamais atteint Closing, en revanche, suit son
+  // dernier statut Setting connu (un lead retombé en NRP ne compte pas).
   // Ça garantit structurellement Deal Qualifié ⊆ Lead Qualifié ⊆ Leads.
   const funnelData = useMemo(() => {
     const cohortLeadIds = new Set(filtered.map((event) => event.lead_id))
     const latestSettingByLead = new Map(
       latestEventByLead(enrichedSettingEvents.filter((e) => cohortLeadIds.has(e.lead_id) && e.setting_status))
-        .map((e) => [e.lead_id, e])
-    )
-    // Dernier événement Closing, statut ou non (un statut null marque une clôture explicite).
-    const latestClosingAnyByLead = new Map(
-      latestEventByLead(enrichedClosingEvents.filter((e) => cohortLeadIds.has(e.lead_id)))
         .map((e) => [e.lead_id, e])
     )
 
@@ -129,9 +123,16 @@ export default function LeadsContent({ leads }) {
       return 1 // Deal Lost, No-Show, Deal, Deal Non Qualifié: implique d'avoir été qualifié
     }
 
+    const maxClosingRankByLead = new Map()
+    enrichedClosingEvents.forEach((e) => {
+      if (!cohortLeadIds.has(e.lead_id) || !e.closing_status) return
+      const rank = closingRank(e.closing_status)
+      maxClosingRankByLead.set(e.lead_id, Math.max(maxClosingRankByLead.get(e.lead_id) || 0, rank))
+    })
+
     function rankOf(leadId) {
-      const closing = latestClosingAnyByLead.get(leadId)
-      if (closing && closing.closing_status) return closingRank(closing.closing_status)
+      const closingMax = maxClosingRankByLead.get(leadId)
+      if (closingMax) return closingMax
       const setting = latestSettingByLead.get(leadId)
       return setting?.setting_status.toLowerCase() === 'lead qualifié' ? 1 : 0
     }
