@@ -522,9 +522,9 @@ export default function SettingContent({ leads }) {
                     </span>
                     {i > 0 && (
                       <span style={{ color: '#888888', fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {funnelSteps[i - 1].count > 0
-                          ? ((step.count / funnelSteps[i - 1].count) * 100).toFixed(1)
-                          : 0}%
+                        {funnelSteps[0].count > 0
+                          ? ((step.count / funnelSteps[0].count) * 100).toFixed(1)
+                          : 0}% du total
                       </span>
                     )}
                   </div>
