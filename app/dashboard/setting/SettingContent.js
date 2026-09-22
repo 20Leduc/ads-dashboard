@@ -8,6 +8,7 @@ import {
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
   filterEventsByDateRange,
+  latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -165,7 +166,27 @@ export default function SettingContent({ leads }) {
     return data
   }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
-  const total = countDistinctLeads(filtered)
+  // Le Total (et les catégories qui en dépendent) se base sur les leads CRÉÉS
+  // (lead_created), pas seulement ceux qui ont déjà un setting_updated — sinon un
+  // lead pas encore appelé/qualifié est invisible au lieu de compter en "En attente".
+  const cohortLeads = useMemo(() => {
+    let data = dedupeEventsByLead(filterEventsByDateRange(leadCreatedEvents, startDate, endDate))
+    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
+    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
+    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
+    return data
+  }, [leadCreatedEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
+  const cohortLeadIds = useMemo(() => new Set(cohortLeads.map((l) => l.lead_id)), [cohortLeads])
+
+  const latestSettingByLead = useMemo(
+    () => new Map(
+      latestEventByLead(enrichedSettingEvents.filter((e) => cohortLeadIds.has(e.lead_id) && e.setting_status))
+        .map((e) => [e.lead_id, e])
+    ),
+    [enrichedSettingEvents, cohortLeadIds]
+  )
+
+  const total = cohortLeadIds.size
   const uniqueStatusEvents = useMemo(
     () => dedupeEventsByKey(
       filtered,
@@ -175,20 +196,20 @@ export default function SettingContent({ leads }) {
   )
 
   const leadsQualifies = useMemo(
-    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
-    [filtered]
+    () => [...cohortLeadIds].filter((id) => latestSettingByLead.get(id)?.setting_status?.toLowerCase() === 'lead qualifié').length,
+    [cohortLeadIds, latestSettingByLead]
   )
   const leadsNonQualifies = useMemo(
-    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'lead non qualifié'),
-    [filtered]
+    () => [...cohortLeadIds].filter((id) => latestSettingByLead.get(id)?.setting_status?.toLowerCase() === 'lead non qualifié').length,
+    [cohortLeadIds, latestSettingByLead]
   )
   const leadsNrp = useMemo(
-    () => countDistinctLeads(filtered, (l) => l.setting_status?.toLowerCase() === 'nrp'),
-    [filtered]
+    () => [...cohortLeadIds].filter((id) => latestSettingByLead.get(id)?.setting_status?.toLowerCase() === 'nrp').length,
+    [cohortLeadIds, latestSettingByLead]
   )
   const leadsEnAttente = useMemo(
-    () => countDistinctLeads(filtered, (l) => !l.setting_status || l.setting_status === ''),
-    [filtered]
+    () => [...cohortLeadIds].filter((id) => !latestSettingByLead.get(id)?.setting_status).length,
+    [cohortLeadIds, latestSettingByLead]
   )
 
   const tauxQualification = total > 0
