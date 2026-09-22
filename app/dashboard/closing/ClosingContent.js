@@ -13,7 +13,6 @@ import {
 } from '@/lib/lead-events'
 import {
   Calendar,
-  UserCheck,
   UserX,
   Percent,
   Briefcase,
@@ -217,17 +216,8 @@ export default function ClosingContent({ leads }) {
   // Closing) — il ne doit jamais compter comme un RDV passé résolu.
   const rdv_passes = countDistinctLeads(passedClosingEvents, d => Boolean(d.closing_status))
 
-  const show = countDistinctLeads(
-    passedClosingEvents,
-    d => d.closing_status !== null && d.closing_status !== '' && d.closing_status !== 'No-Show'
-  )
-
   const taux_no_show = rdv_passes > 0
     ? (no_show / rdv_passes * 100).toFixed(1)
-    : 0
-
-  const taux_show = rdv_passes > 0
-    ? (show / rdv_passes * 100).toFixed(1)
     : 0
 
   const rdv_en_cours = useMemo(
@@ -250,12 +240,16 @@ export default function ClosingContent({ leads }) {
     [qualifiedClosingEvents]
   )
 
-  const taux_deal_qualifie = show > 0
-    ? (deal_qualifies / show * 100).toFixed(1)
+  // "Show" (tout statut Closing hors No-Show) mélange des statuts non vérifiés
+  // (Deal, Deal Lost, Deal Non Qualifié) avec les statuts vérifiés — on ne
+  // l'affiche plus. RDV Passés (tout lead avec une issue Closing connue) sert
+  // de base plus sûre pour ces taux.
+  const taux_deal_qualifie = rdv_passes > 0
+    ? (deal_qualifies / rdv_passes * 100).toFixed(1)
     : 0
 
-  const taux_deal_won = show > 0
-    ? (deal_won / show * 100).toFixed(1)
+  const taux_deal_won = rdv_passes > 0
+    ? (deal_won / rdv_passes * 100).toFixed(1)
     : 0
 
   const dailyData = useMemo(() => {
@@ -283,14 +277,6 @@ export default function ClosingContent({ leads }) {
         dealWon: value.dealWonIds.size,
       }))
   }, [passedClosingEvents, qualifiedClosingEvents])
-
-  const showNoShowData = useMemo(() => {
-    const data = [
-      { name: 'Show', value: show },
-      { name: 'No Show', value: no_show },
-    ]
-    return data.filter(d => d.value > 0)
-  }, [show, no_show])
 
   const closingStatusData = useMemo(() => {
     const map = {}
@@ -383,12 +369,11 @@ export default function ClosingContent({ leads }) {
       { label: 'Total Leads', count: total },
       { label: 'Total RDV', count: total_rdv },
       { label: 'RDV Passés', count: rdv_passes },
-      { label: 'Show', count: show },
       { label: 'Deal Qualifié', count: deal_qualifies },
       { label: 'Deal Won', count: deal_won },
     ]
     return steps
-  }, [total, total_rdv, rdv_passes, show, deal_qualifies, deal_won])
+  }, [total, total_rdv, rdv_passes, deal_qualifies, deal_won])
 
   const resetFilters = () => {
     setStartDate('')
@@ -555,9 +540,7 @@ export default function ClosingContent({ leads }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', width: '100%' }}>
         <KpiCard icon={Calendar} label="Total RDV" value={total_rdv} />
-        <KpiCard icon={UserCheck} label="Show" value={show} valueColor="#00D18B" />
         <KpiCard icon={UserX} label="No Show" value={no_show} valueColor="#ff4444" />
-        <KpiCard icon={Percent} label="Taux Show" value={taux_show + '%'} valueColor="#00D18B" />
         <KpiCard icon={Percent} label="Taux No Show" value={taux_no_show + '%'} valueColor="#ff4444" />
       </div>
 
@@ -570,7 +553,7 @@ export default function ClosingContent({ leads }) {
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: '16px', alignItems: 'stretch', width: '100%' }}>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-            Évolution Show / No Show / Deal Won
+            Évolution No Show / Deal Won
           </p>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={dailyData}>
@@ -579,7 +562,6 @@ export default function ClosingContent({ leads }) {
               <YAxis stroke="#888888" tick={{ fontSize: 12 }} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} />
               <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
-              <Line type="monotone" dataKey="show" stroke="#00D18B" strokeWidth={2} dot={{ fill: '#00D18B', r: 3 }} name="Show" />
               <Line type="monotone" dataKey="noShow" stroke="#ff4444" strokeWidth={2} dot={{ fill: '#ff4444', r: 3 }} name="No Show" />
               <Line type="monotone" dataKey="dealWon" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: 3 }} name="Deal Won" />
             </LineChart>
@@ -643,12 +625,6 @@ export default function ClosingContent({ leads }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-            Show / No Show
-          </p>
-          <DonutWithLegend data={showNoShowData} getColor={(i) => (i === 0 ? '#00D18B' : '#ff4444')} />
-        </div>
-        <div style={chartCardStyle}>
-          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Statuts Closing
           </p>
           <DonutWithLegend data={closingStatusData} />
@@ -669,7 +645,7 @@ export default function ClosingContent({ leads }) {
 
       <div style={chartCardStyle}>
         <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-          Show vs No Show par campagne
+          No Show par campagne
         </p>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={campaignBarData}>
@@ -678,7 +654,6 @@ export default function ClosingContent({ leads }) {
             <YAxis stroke="#888888" tick={{ fontSize: 12 }} allowDecimals={false} />
             <Tooltip contentStyle={tooltipStyle} />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
-            <Bar dataKey="Show" fill="#00D18B" radius={[4, 4, 0, 0]} />
             <Bar dataKey="No Show" fill="#ff4444" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -694,9 +669,7 @@ export default function ClosingContent({ leads }) {
             <TableRow style={{ background: '#161616', borderBottom: '1px solid #1f1f1f' }}>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Campagne</TableHead>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total RDV</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Show</TableHead>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>No Show</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taux Show</TableHead>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deal Qualifiés</TableHead>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deal Won</TableHead>
               <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taux Closing</TableHead>
@@ -708,17 +681,9 @@ export default function ClosingContent({ leads }) {
                 <TableCell style={{ color: '#ffffff', fontSize: '14px' }}>{row.campaign}</TableCell>
                 <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>{row.totalRdv}</TableCell>
                 <TableCell>
-                  <span style={{ display: 'inline-block', background: '#00D18B20', color: '#00D18B', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
-                    {row.show}
-                  </span>
-                </TableCell>
-                <TableCell>
                   <span style={{ display: 'inline-block', background: '#ff444420', color: '#ff4444', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
                     {row.noShow}
                   </span>
-                </TableCell>
-                <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
-                  {row.totalRdv > 0 ? ((row.show / row.totalRdv) * 100).toFixed(1) + '%' : '0.0%'}
                 </TableCell>
                 <TableCell>
                   <span style={{ display: 'inline-block', background: '#A78BFA20', color: '#A78BFA', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
