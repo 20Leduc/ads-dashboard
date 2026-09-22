@@ -102,12 +102,13 @@ export default function LeadsContent({ leads }) {
     [filtered]
   )
 
-  // Rang de qualification par lead : atteindre le pipeline Closing (Deal, Deal
-  // Qualifié, Deal Won, Deal Lost, No-Show...) implique d'avoir été qualifié, et ça
-  // reste acquis pour toujours — même si le deal est ensuite recyclé en suivi Setting
-  // ou a échoué. On prend donc le rang Closing le plus HAUT jamais atteint (pas le
-  // dernier événement). Un lead qui n'a jamais atteint Closing, en revanche, suit son
-  // dernier statut Setting connu (un lead retombé en NRP ne compte pas).
+  // Rang de qualification par lead : seuls "Deal Qualifié" et "Deal Won" sont des
+  // statuts Closing vérifiés (contre GHL) et font foi. Les autres statuts Closing
+  // (Deal, Deal Lost, Deal Non Qualifié, No-Show) proviennent d'un historique non
+  // fiable et ne comptent plus comme qualifiants automatiquement — "Lead Qualifié"
+  // retombe alors sur le statut Setting actuel (source Airtable, fiable). On prend
+  // le rang Closing le plus HAUT jamais atteint parmi les statuts vérifiés (pas le
+  // dernier événement), pour rester acquis même si le deal a ensuite échoué.
   // Ça garantit structurellement Deal Qualifié ⊆ Lead Qualifié ⊆ Leads.
   const funnelData = useMemo(() => {
     const cohortLeadIds = new Set(filtered.map((event) => event.lead_id))
@@ -120,7 +121,7 @@ export default function LeadsContent({ leads }) {
       const s = status.toLowerCase()
       if (s === 'deal won') return 3
       if (s === 'deal qualifié') return 2
-      return 1 // Deal Lost, No-Show, Deal, Deal Non Qualifié: implique d'avoir été qualifié
+      return 0 // Deal Lost, No-Show, Deal, Deal Non Qualifié: statut non vérifié
     }
 
     const maxClosingRankByLead = new Map()
