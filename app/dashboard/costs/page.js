@@ -1,44 +1,11 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/lib/useAuth'
-import { getLeadEvents, getDailySpend } from '@/lib/supabase'
+import { useDashboardData } from '@/lib/DashboardDataContext'
 import CostsContent from './CostsContent'
 
 export default function CostsPage() {
-  const { user, clientSchema, loading: authLoading } = useAuth()
-  const [spendData, setSpendData] = useState([])
-  const [leadsData, setLeadsData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const { leads, spendData, dataLoading } = useDashboardData()
 
-  useEffect(() => {
-    if (authLoading) return
-    if (!user) {
-      router.push('/login')
-      return
-    }
-    if (!clientSchema) return
-
-    const fetchData = async () => {
-      try {
-        const [spend, leads] = await Promise.all([
-          getDailySpend(clientSchema.schema_name),
-          getLeadEvents(clientSchema.schema_name),
-        ])
-        setSpendData(spend)
-        setLeadsData(leads)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [user, clientSchema, authLoading, router])
-
-  if (authLoading || loading) {
+  if (dataLoading) {
     return (
       <div style={{ padding: '32px', textAlign: 'center' }}>
         <div style={{
@@ -53,5 +20,5 @@ export default function CostsPage() {
     )
   }
 
-  return <CostsContent spendData={spendData || []} leadsData={leadsData || []} />
+  return <CostsContent spendData={spendData || []} leadsData={leads || []} />
 }

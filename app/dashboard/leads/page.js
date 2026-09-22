@@ -1,39 +1,11 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/lib/useAuth'
-import { getLeadEvents } from '@/lib/supabase'
+import { useDashboardData } from '@/lib/DashboardDataContext'
 import LeadsContent from './LeadsContent'
 
 export default function LeadsPage() {
-  const { user, clientSchema, loading: authLoading } = useAuth()
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const { leads, dataLoading } = useDashboardData()
 
-  useEffect(() => {
-    if (authLoading) return
-    if (!user) {
-      router.push('/login')
-      return
-    }
-    if (!clientSchema) return
-
-    const fetchData = async () => {
-      try {
-        const leads = await getLeadEvents(clientSchema.schema_name)
-        setData(leads)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [user, clientSchema, authLoading, router])
-
-  if (authLoading || loading) {
+  if (dataLoading) {
     return (
       <div style={{ padding: '32px', textAlign: 'center' }}>
         <div style={{
@@ -48,5 +20,5 @@ export default function LeadsPage() {
     )
   }
 
-  return <LeadsContent leads={data || []} />
+  return <LeadsContent leads={leads || []} />
 }

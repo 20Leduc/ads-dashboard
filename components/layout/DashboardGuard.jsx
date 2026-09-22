@@ -1,10 +1,10 @@
 'use client'
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/lib/useAuth'
+import { useDashboardData } from '@/lib/DashboardDataContext'
 
 export default function DashboardGuard({ children }) {
-  const { user, loading } = useAuth()
+  const { user, authLoading: loading } = useDashboardData()
   const router = useRouter()
 
   useEffect(() => {
