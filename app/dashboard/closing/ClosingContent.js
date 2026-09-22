@@ -173,17 +173,6 @@ export default function ClosingContent({ leads }) {
     return data
   }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
 
-  const firstQualificationByLead = useMemo(() => {
-    const firstByLead = new Map()
-    enrichedSettingEvents.forEach((event) => {
-      if (!event.lead_id || event.setting_status !== 'Lead qualifié') return
-      const timestamp = new Date(event.event_at).getTime()
-      if (Number.isNaN(timestamp)) return
-      const current = firstByLead.get(event.lead_id)
-      if (current === undefined || timestamp < current) firstByLead.set(event.lead_id, timestamp)
-    })
-    return firstByLead
-  }, [enrichedSettingEvents])
   // Cohorte : leads qualifiés en Setting pendant la période filtrée. On regarde
   // ensuite leur issue Closing réelle, même si elle survient après la période.
   const cohortLeadIds = useMemo(
@@ -194,14 +183,14 @@ export default function ClosingContent({ leads }) {
     ),
     [filteredSettingEvents]
   )
+  // On ne compare plus les dates Setting vs Closing entre elles : le statut
+  // Setting reflète désormais l'état ACTUEL (source Airtable, horodaté au
+  // moment du dernier resync, pas la date réelle de qualification) — comparer
+  // ces timestamps n'a donc plus de sens. Appartenir à la cohorte qualifiée
+  // suffit à retenir les événements Closing du lead.
   const qualifiedClosingEvents = useMemo(
-    () => enrichedClosingEvents.filter((event) => {
-      if (!cohortLeadIds.has(event.lead_id)) return false
-      const qualificationTime = firstQualificationByLead.get(event.lead_id)
-      const closingTime = new Date(event.event_at).getTime()
-      return qualificationTime !== undefined && !Number.isNaN(closingTime) && closingTime > qualificationTime
-    }),
-    [enrichedClosingEvents, cohortLeadIds, firstQualificationByLead]
+    () => enrichedClosingEvents.filter((event) => cohortLeadIds.has(event.lead_id)),
+    [enrichedClosingEvents, cohortLeadIds]
   )
   const total = countDistinctLeads(qualifiedClosingEvents)
   const uniqueStatusEvents = useMemo(
