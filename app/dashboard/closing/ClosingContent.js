@@ -254,19 +254,25 @@ export default function ClosingContent({ leads }) {
 
   const dailyData = useMemo(() => {
     const days = {}
+    const ensureDay = (d) => {
+      if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set(), dealQualifiedIds: new Set() }
+      return days[d]
+    }
     passedClosingEvents.forEach((l) => {
       const d = l.event_at?.split('T')[0]
       if (d) {
-        if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set() }
-        if (l.closing_status === 'No-Show') days[d].noShowIds.add(l.lead_id)
-        else if (l.closing_status) days[d].showIds.add(l.lead_id)
+        const day = ensureDay(d)
+        if (l.closing_status === 'No-Show') day.noShowIds.add(l.lead_id)
+        else if (l.closing_status) day.showIds.add(l.lead_id)
       }
     })
     qualifiedClosingEvents.forEach((l) => {
       const d = l.event_at?.split('T')[0]
-      if (!d || l.closing_status?.toLowerCase() !== 'deal won') return
-      if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set() }
-      days[d].dealWonIds.add(l.lead_id)
+      const status = l.closing_status?.toLowerCase()
+      if (!d || (status !== 'deal won' && status !== 'deal qualifié')) return
+      const day = ensureDay(d)
+      if (status === 'deal won') day.dealWonIds.add(l.lead_id)
+      else day.dealQualifiedIds.add(l.lead_id)
     })
     return Object.entries(days)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -275,6 +281,7 @@ export default function ClosingContent({ leads }) {
         show: value.showIds.size,
         noShow: value.noShowIds.size,
         dealWon: value.dealWonIds.size,
+        dealQualifies: value.dealQualifiedIds.size,
       }))
   }, [passedClosingEvents, qualifiedClosingEvents])
 
@@ -553,7 +560,7 @@ export default function ClosingContent({ leads }) {
       <div style={{ display: 'grid', gridTemplateColumns: '65fr 35fr', gap: '16px', alignItems: 'stretch', width: '100%' }}>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-            Évolution No Show / Deal Won
+            Évolution No Show / Deal Qualifiés / Deal Won
           </p>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={dailyData}>
@@ -563,6 +570,7 @@ export default function ClosingContent({ leads }) {
               <Tooltip contentStyle={tooltipStyle} />
               <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
               <Line type="monotone" dataKey="noShow" stroke="#ff4444" strokeWidth={2} dot={{ fill: '#ff4444', r: 3 }} name="No Show" />
+              <Line type="monotone" dataKey="dealQualifies" stroke="#00D18B" strokeWidth={2} dot={{ fill: '#00D18B', r: 3 }} name="Deal Qualifiés" />
               <Line type="monotone" dataKey="dealWon" stroke="#A78BFA" strokeWidth={2} dot={{ fill: '#A78BFA', r: 3 }} name="Deal Won" />
             </LineChart>
           </ResponsiveContainer>
