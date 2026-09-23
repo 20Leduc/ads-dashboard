@@ -164,16 +164,17 @@ export default function ClosingContent({ leads }) {
     [leads]
   )
 
+  // Cohorte : tous les leads qualifiés en Setting, quelle que soit la date —
+  // le statut Setting reflète l'état ACTUEL (source Airtable, pas une date de
+  // qualification fiable), donc filtrer cette cohorte par date n'a pas de sens.
   const filteredSettingEvents = useMemo(() => {
-    let data = filterEventsByDateRange(enrichedSettingEvents, startDate, endDate)
+    let data = enrichedSettingEvents
     if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
     if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
     if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
     return data
-  }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
+  }, [enrichedSettingEvents, filterPlatform, filterCampaign, filterSocial])
 
-  // Cohorte : leads qualifiés en Setting pendant la période filtrée. On regarde
-  // ensuite leur issue Closing réelle, même si elle survient après la période.
   const cohortLeadIds = useMemo(
     () => new Set(
       filteredSettingEvents
@@ -182,14 +183,16 @@ export default function ClosingContent({ leads }) {
     ),
     [filteredSettingEvents]
   )
-  // On ne compare plus les dates Setting vs Closing entre elles : le statut
-  // Setting reflète désormais l'état ACTUEL (source Airtable, horodaté au
-  // moment du dernier resync, pas la date réelle de qualification) — comparer
-  // ces timestamps n'a donc plus de sens. Appartenir à la cohorte qualifiée
-  // suffit à retenir les événements Closing du lead.
-  const qualifiedClosingEvents = useMemo(
+  const cohortClosingEvents = useMemo(
     () => enrichedClosingEvents.filter((event) => cohortLeadIds.has(event.lead_id)),
     [enrichedClosingEvents, cohortLeadIds]
+  )
+  // Le filtre de date s'applique ici, directement sur la date réelle de
+  // l'issue Closing (event_at = date du passage No Show / Deal Qualifié /
+  // Deal Won côté GHL), pas sur la date de qualification du lead.
+  const qualifiedClosingEvents = useMemo(
+    () => filterEventsByDateRange(cohortClosingEvents, startDate, endDate),
+    [cohortClosingEvents, startDate, endDate]
   )
   const total = countDistinctLeads(qualifiedClosingEvents)
   const uniqueStatusEvents = useMemo(
@@ -204,7 +207,8 @@ export default function ClosingContent({ leads }) {
     [qualifiedClosingEvents]
   )
 
-  // Un RDV correspond à un lead qualifié par le Setting pendant la période (cohorte).
+  // Un RDV correspond à un lead qualifié par le Setting (toute la cohorte,
+  // indépendamment du filtre de date qui ne porte que sur l'issue Closing).
   const total_rdv = cohortLeadIds.size
 
   const no_show = useMemo(
