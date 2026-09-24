@@ -113,6 +113,15 @@ const labelStyle = {
   marginBottom: '6px',
 }
 
+// Lien direct vers l'annonce dans Meta Ads Manager. On n'a pas l'ID du
+// compte pub (act) ici — Meta redirige vers le bon compte si le viewer y a
+// accès. Uniquement pour Meta : pas de format d'URL fiable pour les autres
+// plateformes.
+function getAdManagerUrl(row) {
+  if (!row.ad_id || row.platform?.toLowerCase() !== 'meta') return null
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads?selected_ad_ids=${row.ad_id}`
+}
+
 function getTauxColor(val) {
   const num = parseFloat(val)
   if (num >= 30) return '#00D18B'
@@ -246,6 +255,7 @@ export default function AdsContent({ leads }) {
             adset_name: d.adset_name,
             platform: d.platform,
             social_network: d.social_network,
+            ad_id: d.ad_id,
             leadIds: new Set(),
             qualifiedIds: new Set(),
             nrpIds: new Set(),
@@ -875,6 +885,7 @@ export default function AdsContent({ leads }) {
                   row.ad_name.length > 40
                     ? row.ad_name.slice(0, 40) + '...'
                     : row.ad_name
+                const adUrl = getAdManagerUrl(row)
                 return (
                   <TableRow
                     key={row.ad_name}
@@ -897,7 +908,20 @@ export default function AdsContent({ leads }) {
                       style={{ color: '#ffffff', fontSize: '13px' }}
                       title={row.ad_name}
                     >
-                      {adDisplay}
+                      {adUrl ? (
+                        <a
+                          href={adUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#00D18B', textDecoration: 'none' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                        >
+                          {adDisplay}
+                        </a>
+                      ) : (
+                        adDisplay
+                      )}
                     </TableCell>
                     <TableCell style={{ color: '#888888', fontSize: '13px' }}>
                       {row.campaign_name || '—'}
