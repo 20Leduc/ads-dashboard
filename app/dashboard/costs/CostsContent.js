@@ -299,14 +299,12 @@ export default function CostsContent({ spendData, leadsData }) {
 
   const totalLeads = countDistinctLeads(filteredLeads)
 
+  // Un RDV correspond à un lead qualifié en Setting, comme sur les pages
+  // Closing/Setting — pas "tout lead ayant un statut Closing", qui mélangeait
+  // ici des issues (No-Show compris) avec le nombre de RDV programmés.
   const totalRdv = useMemo(
-    () => countDistinctLeads(latestClosingEvents, (l) => Boolean(l.closing_status)),
-    [latestClosingEvents]
-  )
-
-  const show = useMemo(
-    () => countDistinctLeads(latestClosingEvents, (l) => Boolean(l.closing_status) && l.closing_status !== 'No-Show'),
-    [latestClosingEvents]
+    () => countDistinctLeads(filteredSettingEvents, (l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+    [filteredSettingEvents]
   )
 
   const noShow = useMemo(
@@ -334,7 +332,6 @@ export default function CostsContent({ spendData, leadsData }) {
   const cpDealQl = dealQualifies > 0 ? totalSpend / dealQualifies : 0
   const cpDealWon = dealWon > 0 ? totalSpend / dealWon : 0
   const cpNoShow = noShow > 0 ? totalSpend / noShow : 0
-  const cpShow = show > 0 ? totalSpend / show : 0
   const cpProposalSent = proposalSent > 0 ? totalSpend / proposalSent : 0
 
   const dailyData = useMemo(() => {
@@ -456,7 +453,7 @@ export default function CostsContent({ spendData, leadsData }) {
 
   const IconsRow1 = [DollarSign, TrendingDown, Target]
   const IconsRow2 = [Calendar, UserCheck, Trophy]
-  const IconsRow3 = [UserX, UserCheck, Send]
+  const IconsRow3 = [UserX, Send]
 
   const kpiRows = [
     [
@@ -471,7 +468,6 @@ export default function CostsContent({ spendData, leadsData }) {
     ],
     [
       { label: 'CP No Show', value: formatCurrency(cpNoShow), sub: `${formatNumber(noShow)} no show` },
-      { label: 'CP Show', value: formatCurrency(cpShow), sub: `${formatNumber(show)} show` },
       { label: 'CP Proposal Sent', value: formatCurrency(cpProposalSent), sub: `${formatNumber(proposalSent)} proposals` },
     ],
   ]
