@@ -406,43 +406,53 @@ export default function CostsContent({ spendData, leadsData }) {
     const spendMap = {}
     filteredSpend.forEach((d) => {
       const name = d.campaign_name || 'N/A'
-      if (!spendMap[name]) spendMap[name] = { spend: 0, leads: 0 }
-      spendMap[name].spend += Number(d.spend || 0)
-      spendMap[name].leads += Number(d.leads_count || 0)
+      if (!spendMap[name]) spendMap[name] = 0
+      spendMap[name] += Number(d.spend || 0)
     })
 
-    const leadsMap = {}
+    // Leads réels du CRM (fact_lead_events), pas le leads_count brut des lignes
+    // de dépense — ce champ vient de la plateforme pub / Airtable et n'a aucun
+    // rapport fiable avec les leads réellement entrés dans le CRM.
+    const realLeadsMap = {}
+    filteredLeads.forEach((l) => {
+      const name = l.campaign_name || 'N/A'
+      if (!realLeadsMap[name]) realLeadsMap[name] = new Set()
+      realLeadsMap[name].add(l.lead_id)
+    })
+
+    const statusMap = {}
     filteredSettingEvents.forEach((l) => {
       const name = l.campaign_name || 'N/A'
-      if (!leadsMap[name]) leadsMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
-      if (l.setting_status?.toLowerCase() === 'lead qualifié') leadsMap[name].qualifiedIds.add(l.lead_id)
+      if (!statusMap[name]) statusMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
+      if (l.setting_status?.toLowerCase() === 'lead qualifié') statusMap[name].qualifiedIds.add(l.lead_id)
     })
     filteredClosingEvents.forEach((l) => {
       const name = l.campaign_name || 'N/A'
-      if (!leadsMap[name]) leadsMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
-      if (l.closing_status?.toLowerCase() === 'deal won') leadsMap[name].dealWonIds.add(l.lead_id)
+      if (!statusMap[name]) statusMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
+      if (l.closing_status?.toLowerCase() === 'deal won') statusMap[name].dealWonIds.add(l.lead_id)
     })
 
-    const allNames = new Set([...Object.keys(spendMap), ...Object.keys(leadsMap)])
+    const allNames = new Set([...Object.keys(spendMap), ...Object.keys(realLeadsMap), ...Object.keys(statusMap)])
     return Array.from(allNames)
       .map((name) => {
-        const s = spendMap[name] || { spend: 0, leads: 0 }
-        const l = leadsMap[name] || { qualifiedIds: new Set(), dealWonIds: new Set() }
+        const s = spendMap[name] || 0
+        const leadCount = realLeadsMap[name]?.size || 0
+        const l = statusMap[name] || { qualifiedIds: new Set(), dealWonIds: new Set() }
         const qualified = l.qualifiedIds.size
         const campaignDealWon = l.dealWonIds.size
         return {
           campaign: name,
-          spend: s.spend,
-          leads: s.leads,
-          cpl: s.leads > 0 ? s.spend / s.leads : 0,
+          spend: s,
+          leads: leadCount,
+          cpl: leadCount > 0 ? s / leadCount : 0,
           qualified,
-          cpql: qualified > 0 ? s.spend / qualified : 0,
+          cpql: qualified > 0 ? s / qualified : 0,
           dealWon: campaignDealWon,
-          cpDealWon: campaignDealWon > 0 ? s.spend / campaignDealWon : 0,
+          cpDealWon: campaignDealWon > 0 ? s / campaignDealWon : 0,
         }
       })
       .sort((a, b) => b.spend - a.spend)
-  }, [filteredSpend, filteredSettingEvents, filteredClosingEvents])
+  }, [filteredSpend, filteredLeads, filteredSettingEvents, filteredClosingEvents])
 
   const IconsRow1 = [DollarSign, TrendingDown, Target]
   const IconsRow2 = [Calendar, UserCheck, Trophy]
