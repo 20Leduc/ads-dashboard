@@ -129,8 +129,7 @@ const FILTER_DEFAULTS = {
 }
 
 export default function AdsContent({ leads }) {
-  const [input, setInput] = useState({ ...FILTER_DEFAULTS })
-  const [applied, setApplied] = useState({ ...FILTER_DEFAULTS })
+  const [filters, setFilters] = useState({ ...FILTER_DEFAULTS })
   const [sortKey, setSortKey] = useState('total_leads')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -148,16 +147,11 @@ export default function AdsContent({ leads }) {
   )
 
   const setFilter = (key, value) => {
-    setInput((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const applyFilters = () => {
-    setApplied({ ...input })
+    setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
   const resetFilters = () => {
-    setInput({ ...FILTER_DEFAULTS })
-    setApplied({ ...FILTER_DEFAULTS })
+    setFilters({ ...FILTER_DEFAULTS })
   }
 
   const allPlatforms = useMemo(
@@ -174,16 +168,16 @@ export default function AdsContent({ leads }) {
   )
 
   const filteredLeads = useMemo(
-    () => dedupeEventsByLead(filterEventDimensions(leadCreatedEvents, applied)),
-    [leadCreatedEvents, applied]
+    () => dedupeEventsByLead(filterEventDimensions(leadCreatedEvents, filters)),
+    [leadCreatedEvents, filters]
   )
   const filteredSettingEvents = useMemo(
-    () => filterEventDimensions(enrichedSettingEvents, applied),
-    [enrichedSettingEvents, applied]
+    () => filterEventDimensions(enrichedSettingEvents, filters),
+    [enrichedSettingEvents, filters]
   )
   const filteredClosingEvents = useMemo(
-    () => filterEventDimensions(enrichedClosingEvents, applied),
-    [enrichedClosingEvents, applied]
+    () => filterEventDimensions(enrichedClosingEvents, filters),
+    [enrichedClosingEvents, filters]
   )
   const filteredData = useMemo(
     () => [...filteredLeads, ...filteredSettingEvents, ...filteredClosingEvents],
@@ -496,7 +490,7 @@ export default function AdsContent({ leads }) {
             <label style={labelStyle}>Date début</label>
             <input
               type="date"
-              value={input.startDate}
+              value={filters.startDate}
               onChange={(e) => setFilter('startDate', e.target.value)}
               style={inputDateStyle}
             />
@@ -505,7 +499,7 @@ export default function AdsContent({ leads }) {
             <label style={labelStyle}>Date fin</label>
             <input
               type="date"
-              value={input.endDate}
+              value={filters.endDate}
               onChange={(e) => setFilter('endDate', e.target.value)}
               style={inputDateStyle}
             />
@@ -513,7 +507,7 @@ export default function AdsContent({ leads }) {
           <div>
             <label style={labelStyle}>Plateforme</label>
             <select
-              value={input.platform}
+              value={filters.platform}
               onChange={(e) => setFilter('platform', e.target.value)}
               style={selectStyle}
             >
@@ -528,7 +522,7 @@ export default function AdsContent({ leads }) {
           <div>
             <label style={labelStyle}>Campagne</label>
             <select
-              value={input.campaign}
+              value={filters.campaign}
               onChange={(e) => setFilter('campaign', e.target.value)}
               style={selectStyle}
             >
@@ -543,7 +537,7 @@ export default function AdsContent({ leads }) {
           <div>
             <label style={labelStyle}>Réseau social</label>
             <select
-              value={input.social}
+              value={filters.social}
               onChange={(e) => setFilter('social', e.target.value)}
               style={selectStyle}
             >
@@ -565,21 +559,6 @@ export default function AdsContent({ leads }) {
             flexWrap: 'wrap',
           }}
         >
-          <button
-            onClick={applyFilters}
-            style={{
-              background: '#00D18B',
-              border: 'none',
-              color: '#000000',
-              padding: '8px 20px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-            }}
-          >
-            Appliquer
-          </button>
           <button
             onClick={resetFilters}
             style={{
