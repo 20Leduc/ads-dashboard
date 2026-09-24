@@ -127,6 +127,30 @@ const formatEuro = (value) => {
   }).format(value)
 }
 
+function DailySpendTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null
+  // Area + Line partagent la dataKey "spend" (l'Area n'est qu'un dégradé
+  // visuel sous la ligne) — on ne garde qu'une entrée par série.
+  const seen = new Set()
+  const items = payload.filter((item) => {
+    if (seen.has(item.dataKey)) return false
+    seen.add(item.dataKey)
+    return true
+  })
+  return (
+    <div style={tooltipStyle}>
+      <p style={{ margin: '0 0 6px', padding: '10px 14px 0', color: '#ffffff', fontWeight: 600 }}>{label}</p>
+      <div style={{ padding: '0 14px 10px' }}>
+        {items.map((item) => (
+          <p key={item.dataKey} style={{ margin: '4px 0', color: item.color }}>
+            {item.name} : {item.value == null ? '—' : formatCurrency(item.value)}
+          </p>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const CustomLabel = ({ x, width, value }) => {
   if (!value || value === 0) return null
   
@@ -615,7 +639,7 @@ export default function CostsContent({ spendData, leadsData }) {
               tick={{ fontSize: 12 }}
               tickFormatter={(v) => formatCurrency(v)}
             />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v) => (v == null ? '—' : formatCurrency(v))} />
+            <Tooltip content={<DailySpendTooltip />} />
             <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
             <Area
               yAxisId="spend"
