@@ -28,6 +28,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -330,17 +331,32 @@ export default function CostsContent({ spendData, leadsData }) {
 
   const dailyData = useMemo(() => {
     const days = {}
+    const ensureDay = (d) => {
+      if (!days[d]) days[d] = { date: d, spend: 0, leadIds: new Set(), rdvIds: new Set() }
+      return days[d]
+    }
     filteredSpend.forEach((d) => {
       const date = d.spend_date?.split('T')[0]
-      if (date) {
-        if (!days[date]) days[date] = { date, spend: 0 }
-        days[date].spend += Number(d.spend || 0)
-      }
+      if (date) ensureDay(date).spend += Number(d.spend || 0)
+    })
+    filteredLeads.forEach((l) => {
+      const date = l.event_at?.split('T')[0]
+      if (date) ensureDay(date).leadIds.add(l.lead_id)
+    })
+    filteredSettingEvents.forEach((l) => {
+      if (l.setting_status?.toLowerCase() !== 'lead qualifié') return
+      const date = l.event_at?.split('T')[0]
+      if (date) ensureDay(date).rdvIds.add(l.lead_id)
     })
     return Object.entries(days)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, v]) => v)
-  }, [filteredSpend])
+      .map(([, v]) => ({
+        date: v.date,
+        spend: v.spend,
+        cpl: v.leadIds.size > 0 ? v.spend / v.leadIds.size : null,
+        cpRdv: v.rdvIds.size > 0 ? v.spend / v.rdvIds.size : null,
+      }))
+  }, [filteredSpend, filteredLeads, filteredSettingEvents])
 
   const settingCostData = useMemo(() => {
     return SETTING_STATUSES.map((status) => {
@@ -587,24 +603,58 @@ export default function CostsContent({ spendData, leadsData }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
             <XAxis dataKey="date" stroke="#888888" tick={{ fontSize: 12 }} />
             <YAxis
+              yAxisId="spend"
               stroke="#888888"
               tick={{ fontSize: 12 }}
               tickFormatter={(v) => formatCurrency(v)}
             />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v)} />
+            <YAxis
+              yAxisId="cost"
+              orientation="right"
+              stroke="#888888"
+              tick={{ fontSize: 12 }}
+              tickFormatter={(v) => formatCurrency(v)}
+            />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v) => (v == null ? '—' : formatCurrency(v))} />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
             <Area
+              yAxisId="spend"
               type="monotone"
               dataKey="spend"
+              name="Dépense totale"
               stroke="#00D18B"
               fill="#00D18B"
               fillOpacity={0.08}
+              legendType="none"
             />
             <Line
+              yAxisId="spend"
               type="monotone"
               dataKey="spend"
+              name="Dépense totale"
               stroke="#00D18B"
               strokeWidth={2}
               dot={{ fill: '#00D18B', r: 3 }}
+            />
+            <Line
+              yAxisId="cost"
+              type="monotone"
+              dataKey="cpl"
+              name="Coût par Lead"
+              stroke="#0088FE"
+              strokeWidth={2}
+              dot={{ fill: '#0088FE', r: 3 }}
+              connectNulls
+            />
+            <Line
+              yAxisId="cost"
+              type="monotone"
+              dataKey="cpRdv"
+              name="Coût par RDV"
+              stroke="#FFB347"
+              strokeWidth={2}
+              dot={{ fill: '#FFB347', r: 3 }}
+              connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
