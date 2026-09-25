@@ -102,21 +102,19 @@ export default function LeadsContent({ leads }) {
     [filtered]
   )
 
-  // Rang de qualification par lead : seuls "Deal Qualifié" et "Deal Won" sont des
-  // statuts Closing vérifiés (contre GHL) et font foi. Les autres statuts Closing
-  // (Deal, Deal Lost, Deal Non Qualifié, No-Show) proviennent d'un historique non
-  // fiable et ne comptent plus comme qualifiants automatiquement — "Lead Qualifié"
-  // retombe alors sur le statut Setting actuel (source Airtable, fiable). On prend
-  // le rang Closing le plus HAUT jamais atteint parmi les statuts vérifiés (pas le
-  // dernier événement), pour rester acquis même si le deal a ensuite échoué.
-  // Ça garantit structurellement Deal Qualifié ⊆ Lead Qualifié ⊆ Leads.
+  // Chaque étape est filtrée par la date de son PROPRE événement (création du
+  // lead, statut Setting, statut Closing) — pas par une cohorte figée sur la
+  // date de création du lead, comme sur Setting/Closing.
+  //
+  // Seuls "Deal Qualifié" et "Deal Won" sont des statuts Closing vérifiés
+  // (contre GHL) et font foi. Les autres statuts Closing (Deal, Deal Lost,
+  // Deal Non Qualifié, No-Show) proviennent d'un historique non fiable et ne
+  // comptent plus comme qualifiants automatiquement — "Lead Qualifié" est basé
+  // sur le statut Setting actuel (source Airtable, fiable). On prend le rang
+  // Closing le plus HAUT jamais atteint parmi les statuts vérifiés (pas le
+  // dernier événement), pour rester acquis même si le deal a ensuite échoué ;
+  // sa date est celle de l'événement qui a atteint ce rang.
   const funnelData = useMemo(() => {
-    const cohortLeadIds = new Set(filtered.map((event) => event.lead_id))
-    const latestSettingByLead = new Map(
-      latestEventByLead(enrichedSettingEvents.filter((e) => cohortLeadIds.has(e.lead_id) && e.setting_status))
-        .map((e) => [e.lead_id, e])
-    )
-
     function closingRank(status) {
       const s = status.toLowerCase()
       if (s === 'deal won') return 3
@@ -124,35 +122,29 @@ export default function LeadsContent({ leads }) {
       return 0 // Deal Lost, No-Show, Deal, Deal Non Qualifié: statut non vérifié
     }
 
-    const maxClosingRankByLead = new Map()
+    const currentSettingByLead = latestEventByLead(
+      enrichedSettingEvents.filter((e) => e.setting_status)
+    )
+    const leadQualifieEvents = currentSettingByLead.filter(
+      (e) => e.setting_status.toLowerCase() === 'lead qualifié'
+    )
+
+    const maxClosingByLead = new Map()
     enrichedClosingEvents.forEach((e) => {
-      if (!cohortLeadIds.has(e.lead_id) || !e.closing_status) return
+      if (!e.closing_status) return
       const rank = closingRank(e.closing_status)
-      maxClosingRankByLead.set(e.lead_id, Math.max(maxClosingRankByLead.get(e.lead_id) || 0, rank))
+      if (rank === 0) return
+      const current = maxClosingByLead.get(e.lead_id)
+      if (!current || rank > current.rank) maxClosingByLead.set(e.lead_id, { rank, event: e })
     })
-
-    function rankOf(leadId) {
-      const closingMax = maxClosingRankByLead.get(leadId)
-      if (closingMax) return closingMax
-      const setting = latestSettingByLead.get(leadId)
-      return setting?.setting_status.toLowerCase() === 'lead qualifié' ? 1 : 0
-    }
-
-    let leadQualifie = 0
-    let dealQualifie = 0
-    let dealWon = 0
-    cohortLeadIds.forEach((leadId) => {
-      const rank = rankOf(leadId)
-      if (rank >= 1) leadQualifie++
-      if (rank >= 2) dealQualifie++
-      if (rank >= 3) dealWon++
-    })
+    const dealQualifieEvents = [...maxClosingByLead.values()].filter((d) => d.rank >= 2).map((d) => d.event)
+    const dealWonEvents = [...maxClosingByLead.values()].filter((d) => d.rank >= 3).map((d) => d.event)
 
     const steps = [
-      { label: 'Leads', count: cohortLeadIds.size },
-      { label: 'Lead Qualifié', count: leadQualifie },
-      { label: 'Deal Qualifié', count: dealQualifie },
-      { label: 'Deal Won', count: dealWon },
+      { label: 'Leads', count: totalLeads },
+      { label: 'Lead Qualifié', count: filterEventsByDateRange(leadQualifieEvents, startDate, endDate).length },
+      { label: 'Deal Qualifié', count: filterEventsByDateRange(dealQualifieEvents, startDate, endDate).length },
+      { label: 'Deal Won', count: filterEventsByDateRange(dealWonEvents, startDate, endDate).length },
     ]
 
     let prev = 0
@@ -161,7 +153,7 @@ export default function LeadsContent({ leads }) {
       prev = step.count
       return { ...step, rate }
     })
-  }, [filtered, enrichedSettingEvents, enrichedClosingEvents])
+  }, [totalLeads, enrichedSettingEvents, enrichedClosingEvents, startDate, endDate])
 
   const dailyData = useMemo(() => {
     const days = {}
