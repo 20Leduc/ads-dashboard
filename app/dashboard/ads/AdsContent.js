@@ -6,14 +6,19 @@ import {
   countDistinctLeads,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
+  eventDay,
   filterEventsByDateRange,
+  filterEventsByDimensions,
+  isDealWonStatus,
+  isNonQualifiedStatus,
+  isNrpStatus,
+  isQualifiedStatus,
   latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
   Users,
   UserCheck,
-  Calendar,
   Trophy,
   TrendingUp,
 } from 'lucide-react'
@@ -59,11 +64,10 @@ function getTop5WithOthers(data, nameKey = 'name', valueKey = 'value') {
 }
 
 function filterEventDimensions(events, filters) {
-  let data = filterEventsByDateRange(events, filters.startDate, filters.endDate)
-  if (filters.platform) data = data.filter((event) => event.platform === filters.platform)
-  if (filters.campaign) data = data.filter((event) => event.campaign_name === filters.campaign)
-  if (filters.social) data = data.filter((event) => event.social_network === filters.social)
-  return data
+  return filterEventsByDimensions(
+    filterEventsByDateRange(events, filters.startDate, filters.endDate),
+    filters
+  )
 }
 
 const chartCardStyle = {
@@ -180,8 +184,13 @@ export default function AdsContent({ leads }) {
     () => dedupeEventsByLead(filterEventDimensions(leadCreatedEvents, filters)),
     [leadCreatedEvents, filters]
   )
+  // Statut Setting ACTUEL de chaque lead, daté par "Date Setting" — mêmes
+  // chiffres que la page Setting.
   const filteredSettingEvents = useMemo(
-    () => filterEventDimensions(enrichedSettingEvents, filters),
+    () => filterEventDimensions(
+      latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+      filters
+    ),
     [enrichedSettingEvents, filters]
   )
   const filteredClosingEvents = useMemo(
@@ -192,65 +201,32 @@ export default function AdsContent({ leads }) {
     () => [...filteredLeads, ...filteredSettingEvents, ...filteredClosingEvents],
     [filteredLeads, filteredSettingEvents, filteredClosingEvents]
   )
-  const latestClosingEvents = useMemo(
-    () => latestEventByLead(filteredClosingEvents),
-    [filteredClosingEvents]
-  )
-
   const totalLeads = useMemo(
     () => countDistinctLeads(filteredLeads),
     [filteredLeads]
   )
   const leadsQualifies = useMemo(
-    () => countDistinctLeads(filteredSettingEvents, (l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+    () => countDistinctLeads(filteredSettingEvents, (l) => isQualifiedStatus(l.setting_status)),
     [filteredSettingEvents]
   )
 
-  const no_show = useMemo(
-    () => countDistinctLeads(latestClosingEvents, (d) => d.closing_status === 'No-Show'),
-    [latestClosingEvents]
-  )
-
-  const rdv_passes = useMemo(
-    () => countDistinctLeads(latestClosingEvents, (d) => Boolean(d.closing_status)),
-    [latestClosingEvents]
-  )
-
-  const show = countDistinctLeads(
-    latestClosingEvents,
-    d => Boolean(d.closing_status) && d.closing_status !== 'No-Show'
-  )
-
   const dealWon = useMemo(
-    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'deal won'),
+    () => countDistinctLeads(filteredClosingEvents, (l) => isDealWonStatus(l.closing_status)),
     [filteredClosingEvents]
   )
 
-  const tauxShow =
-    rdv_passes > 0 ? ((show / rdv_passes) * 100).toFixed(1) + '%' : '0.0%'
   const tauxClosing =
     totalLeads > 0
       ? ((dealWon / totalLeads) * 100).toFixed(1) + '%'
       : '0.0%'
 
   const adStats = useMemo(() => {
-    const latestClosingSet = new Set(latestClosingEvents)
     const raw = Object.values(
       filteredData.reduce((acc, d) => {
         const key = d.ad_name || 'No Ad'
         if (!acc[key]) {
           acc[key] = {
             ad_name: key,
-            total_leads: 0,
-            leads_qualifies: 0,
-            nrp: 0,
-            non_qualifies: 0,
-            show: 0,
-            no_show: 0,
-            deal_qualifies: 0,
-            proposal_sent: 0,
-            proposal_signed: 0,
-            deal_won: 0,
             campaign_name: d.campaign_name,
             adset_name: d.adset_name,
             platform: d.platform,
@@ -260,24 +236,21 @@ export default function AdsContent({ leads }) {
             qualifiedIds: new Set(),
             nrpIds: new Set(),
             nonQualifiedIds: new Set(),
-            showIds: new Set(),
-            noShowIds: new Set(),
-            dealQualifiedIds: new Set(),
             proposalSentIds: new Set(),
-            proposalSignedIds: new Set(),
             dealWonIds: new Set(),
           }
         }
-        if (d.event_type === 'lead_created') acc[key].leadIds.add(d.lead_id)
-        if (d.event_type === 'setting_updated' && d.setting_status?.toLowerCase() === 'lead qualifié') acc[key].qualifiedIds.add(d.lead_id)
-        if (d.event_type === 'setting_updated' && d.setting_status?.toLowerCase() === 'nrp') acc[key].nrpIds.add(d.lead_id)
-        if (d.event_type === 'setting_updated' && d.setting_status?.toLowerCase() === 'lead non qualifié') acc[key].nonQualifiedIds.add(d.lead_id)
-        if (latestClosingSet.has(d) && d.closing_status && d.closing_status !== 'No-Show') acc[key].showIds.add(d.lead_id)
-        if (latestClosingSet.has(d) && d.closing_status === 'No-Show') acc[key].noShowIds.add(d.lead_id)
-        if (d.event_type === 'closing_updated' && d.closing_status?.toLowerCase() === 'deal qualifié') acc[key].dealQualifiedIds.add(d.lead_id)
-        if (d.event_type === 'closing_updated' && d.closing_status?.toLowerCase() === 'proposal sent') acc[key].proposalSentIds.add(d.lead_id)
-        if (d.event_type === 'closing_updated' && d.closing_status?.toLowerCase() === 'proposal signed') acc[key].proposalSignedIds.add(d.lead_id)
-        if (d.event_type === 'closing_updated' && d.closing_status?.toLowerCase() === 'deal won') acc[key].dealWonIds.add(d.lead_id)
+        const ad = acc[key]
+        if (d.event_type === 'lead_created') ad.leadIds.add(d.lead_id)
+        if (d.event_type === 'setting_updated') {
+          if (isQualifiedStatus(d.setting_status)) ad.qualifiedIds.add(d.lead_id)
+          else if (isNrpStatus(d.setting_status)) ad.nrpIds.add(d.lead_id)
+          else if (isNonQualifiedStatus(d.setting_status)) ad.nonQualifiedIds.add(d.lead_id)
+        }
+        if (d.event_type === 'closing_updated') {
+          if (d.closing_status?.toLowerCase() === 'proposal sent') ad.proposalSentIds.add(d.lead_id)
+          if (isDealWonStatus(d.closing_status)) ad.dealWonIds.add(d.lead_id)
+        }
         return acc
       }, {})
     )
@@ -286,24 +259,15 @@ export default function AdsContent({ leads }) {
       ad.leads_qualifies = ad.qualifiedIds.size
       ad.nrp = ad.nrpIds.size
       ad.non_qualifies = ad.nonQualifiedIds.size
-      ad.show = ad.showIds.size
-      ad.no_show = ad.noShowIds.size
-      ad.deal_qualifies = ad.dealQualifiedIds.size
       ad.proposal_sent = ad.proposalSentIds.size
-      ad.proposal_signed = ad.proposalSignedIds.size
       ad.deal_won = ad.dealWonIds.size
       ad.taux_qualification =
         ad.total_leads > 0
           ? (ad.leads_qualifies / ad.total_leads) * 100
           : 0
-      ad.taux_show =
-        ad.show + ad.no_show > 0
-          ? (ad.show / (ad.show + ad.no_show)) * 100
-          : 0
-      ad.taux_deal_won = ad.show > 0 ? (ad.deal_won / ad.show) * 100 : 0
     })
     return raw.sort((a, b) => b.total_leads - a.total_leads).slice(0, 10)
-  }, [filteredData, latestClosingEvents])
+  }, [filteredData])
 
   const platformData = useMemo(
     () => getTop5WithOthers(aggregateBy(filteredLeads, (l) => l.platform)),
@@ -316,7 +280,7 @@ export default function AdsContent({ leads }) {
   const qualifiesByCampaign = useMemo(
     () =>
       getTop5WithOthers(aggregateBy(
-        dedupeEventsByLead(filteredSettingEvents.filter((d) => d.setting_status?.toLowerCase() === 'lead qualifié')),
+        dedupeEventsByLead(filteredSettingEvents.filter((d) => isQualifiedStatus(d.setting_status))),
         (l) => l.campaign_name
       )),
     [filteredSettingEvents]
@@ -324,7 +288,7 @@ export default function AdsContent({ leads }) {
   const dealWonByCampaign = useMemo(
     () =>
       getTop5WithOthers(aggregateBy(
-        dedupeEventsByLead(filteredClosingEvents.filter((d) => d.closing_status?.toLowerCase() === 'deal won')),
+        dedupeEventsByLead(filteredClosingEvents.filter((d) => isDealWonStatus(d.closing_status))),
         (l) => l.campaign_name
       )),
     [filteredClosingEvents]
@@ -333,13 +297,13 @@ export default function AdsContent({ leads }) {
   const dailyData = useMemo(() => {
     const days = {}
     filteredData.forEach((l) => {
-      const d = l.event_at?.split('T')[0]
+      const d = eventDay(l.event_at)
       if (d) {
         if (!days[d])
           days[d] = { date: d, leadIds: new Set(), qualifiedIds: new Set(), dealWonIds: new Set() }
         if (l.event_type === 'lead_created') days[d].leadIds.add(l.lead_id)
-        if (l.event_type === 'setting_updated' && l.setting_status?.toLowerCase() === 'lead qualifié') days[d].qualifiedIds.add(l.lead_id)
-        if (l.event_type === 'closing_updated' && l.closing_status?.toLowerCase() === 'deal won') days[d].dealWonIds.add(l.lead_id)
+        if (l.event_type === 'setting_updated' && isQualifiedStatus(l.setting_status)) days[d].qualifiedIds.add(l.lead_id)
+        if (l.event_type === 'closing_updated' && isDealWonStatus(l.closing_status)) days[d].dealWonIds.add(l.lead_id)
       }
     })
     return Object.entries(days)
@@ -600,12 +564,6 @@ export default function AdsContent({ leads }) {
           icon={UserCheck}
           label="Leads Qualifiés"
           value={leadsQualifies}
-          valueColor="#00D18B"
-        />
-        <KpiCard
-          icon={Calendar}
-          label="Taux de Show"
-          value={tauxShow}
           valueColor="#00D18B"
         />
         <KpiCard

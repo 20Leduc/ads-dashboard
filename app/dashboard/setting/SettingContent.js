@@ -3,11 +3,14 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
-  countDistinctLeads,
-  dedupeEventsByKey,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
+  eventDay,
   filterEventsByDateRange,
+  filterEventsByDimensions,
+  isNonQualifiedStatus,
+  isNrpStatus,
+  isQualifiedStatus,
   latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
@@ -158,145 +161,94 @@ export default function SettingContent({ leads }) {
     [leads]
   )
 
-  const filtered = useMemo(() => {
-    let data = filterEventsByDateRange(enrichedSettingEvents, startDate, endDate)
-    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
-    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
-    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
-    return data
-  }, [enrichedSettingEvents, startDate, endDate, filterPlatform, filterCampaign, filterSocial])
+  const dimensionFilters = useMemo(
+    () => ({ platform: filterPlatform, campaign: filterCampaign, social: filterSocial }),
+    [filterPlatform, filterCampaign, filterSocial]
+  )
 
-  // Cohorte : tous les leads (attributs uniquement) — le filtre de date ne
-  // porte pas ici. Un lead pas encore traité en Setting n'a pas de date de
-  // statut ; le filtrer par date le ferait disparaître au lieu de compter en
-  // "En attente".
-  const cohortLeads = useMemo(() => {
-    let data = dedupeEventsByLead(leadCreatedEvents)
-    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
-    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
-    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
-    return data
-  }, [leadCreatedEvents, filterPlatform, filterCampaign, filterSocial])
-  const cohortLeadIds = useMemo(() => new Set(cohortLeads.map((l) => l.lead_id)), [cohortLeads])
-
-  // Statut ACTUEL de chaque lead, sans filtre de date — sert à distinguer un
-  // lead jamais traité ("En attente") d'un lead déjà traité mais dont le
-  // statut a été posé en dehors de la période filtrée (celui-ci ne doit pas
-  // remonter en "En attente").
-  const currentStatusByLead = useMemo(
-    () => new Map(
-      latestEventByLead(enrichedSettingEvents.filter((e) => cohortLeadIds.has(e.lead_id) && e.setting_status))
-        .map((e) => [e.lead_id, e])
+  // Leads reçus dans la période (date de création) — même chiffre que
+  // "Nombre de Leads" sur les pages Leads, Ads et Coûts.
+  const createdInPeriod = useMemo(
+    () => filterEventsByDimensions(
+      dedupeEventsByLead(filterEventsByDateRange(leadCreatedEvents, startDate, endDate)),
+      dimensionFilters
     ),
-    [enrichedSettingEvents, cohortLeadIds]
+    [leadCreatedEvents, startDate, endDate, dimensionFilters]
   )
 
-  const total = cohortLeadIds.size
-  const uniqueStatusEvents = useMemo(
-    () => dedupeEventsByKey(
-      filtered,
-      (event) => `${event.setting_status || ''}\u0000${event.lead_id}`
+  // Statut Setting ACTUEL de chaque lead, retenu si sa date réelle ("Date
+  // Setting" côté Airtable) tombe dans la période — pas la date de création.
+  // Source unique des KPI, graphes et tableau de la page.
+  const datedStatuses = useMemo(
+    () => filterEventsByDimensions(
+      filterEventsByDateRange(
+        latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+        startDate,
+        endDate
+      ),
+      dimensionFilters
     ),
-    [filtered]
+    [enrichedSettingEvents, startDate, endDate, dimensionFilters]
+  )
+  const qualifiedStatuses = useMemo(
+    () => datedStatuses.filter((e) => isQualifiedStatus(e.setting_status)),
+    [datedStatuses]
   )
 
-  // Qualifiés / Non qualifiés / NRP comptent les leads dont le statut ACTUEL
-  // correspond ET dont la date réelle de ce statut (Date Setting côté
-  // Airtable) tombe dans la période filtrée — pas la date de création du lead.
-  const datedCurrentStatusEvents = useMemo(
-    () => filterEventsByDateRange([...currentStatusByLead.values()], startDate, endDate),
-    [currentStatusByLead, startDate, endDate]
-  )
-  const leadsQualifies = useMemo(
-    () => datedCurrentStatusEvents.filter((e) => e.setting_status?.toLowerCase() === 'lead qualifié').length,
-    [datedCurrentStatusEvents]
-  )
-  const leadsNonQualifies = useMemo(
-    () => datedCurrentStatusEvents.filter((e) => e.setting_status?.toLowerCase() === 'lead non qualifié').length,
-    [datedCurrentStatusEvents]
-  )
-  const leadsNrp = useMemo(
-    () => datedCurrentStatusEvents.filter((e) => e.setting_status?.toLowerCase() === 'nrp').length,
-    [datedCurrentStatusEvents]
-  )
-  const leadsEnAttente = useMemo(
-    () => [...cohortLeadIds].filter((id) => !currentStatusByLead.get(id)?.setting_status).length,
-    [cohortLeadIds, currentStatusByLead]
-  )
+  const total = createdInPeriod.length
+  const leadsQualifies = qualifiedStatuses.length
+  const leadsNonQualifies = datedStatuses.filter((e) => isNonQualifiedStatus(e.setting_status)).length
+  const leadsNrp = datedStatuses.filter((e) => isNrpStatus(e.setting_status)).length
 
   const tauxQualification = total > 0
     ? ((leadsQualifies / total) * 100).toFixed(1) + '%'
     : '0.0%'
 
-  const statusData = useMemo(() => {
-    const map = {}
-    uniqueStatusEvents.forEach((l) => {
-      const s = l.setting_status || 'En attente'
-      map[s] = (map[s] || 0) + 1
-    })
-    return getTop5WithOthers(
-      Object.entries(map)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-    )
-  }, [uniqueStatusEvents])
+  const statusData = useMemo(
+    () => getTop5WithOthers(aggregateBy(datedStatuses, (l) => l.setting_status)),
+    [datedStatuses]
+  )
 
   const qualifiesByCampaign = useMemo(
-    () => getTop5WithOthers(aggregateBy(
-      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
-      (l) => l.campaign_name
-    )),
-    [filtered]
+    () => getTop5WithOthers(aggregateBy(qualifiedStatuses, (l) => l.campaign_name)),
+    [qualifiedStatuses]
   )
   const qualifiesByPlatform = useMemo(
-    () => getTop5WithOthers(aggregateBy(
-      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
-      (l) => l.platform
-    )),
-    [filtered]
+    () => getTop5WithOthers(aggregateBy(qualifiedStatuses, (l) => l.platform)),
+    [qualifiedStatuses]
   )
   const qualifiesBySocial = useMemo(
-    () => getTop5WithOthers(aggregateBy(
-      dedupeEventsByLead(filtered.filter((l) => l.setting_status?.toLowerCase() === 'lead qualifié')),
-      (l) => l.social_network
-    )),
-    [filtered]
+    () => getTop5WithOthers(aggregateBy(qualifiedStatuses, (l) => l.social_network)),
+    [qualifiedStatuses]
   )
 
   const dailyData = useMemo(() => {
     const days = {}
-    dedupeEventsByKey(
-      filtered,
-      (event) => `${event.event_at?.split('T')[0] || ''}\u0000${event.setting_status || ''}\u0000${event.lead_id}`
-    ).forEach((l) => {
-      const d = l.event_at?.split('T')[0]
-      if (d) {
-        if (!days[d]) days[d] = { date: d, qualifies: 0, nonQualifies: 0, nrp: 0 }
-        if (l.setting_status?.toLowerCase() === 'lead qualifié') days[d].qualifies++
-        else if (l.setting_status?.toLowerCase() === 'lead non qualifié') days[d].nonQualifies++
-        else if (l.setting_status?.toLowerCase() === 'nrp') days[d].nrp++
-      }
+    datedStatuses.forEach((l) => {
+      const d = eventDay(l.event_at)
+      if (!d) return
+      if (!days[d]) days[d] = { date: d, qualifies: 0, nonQualifies: 0, nrp: 0 }
+      if (isQualifiedStatus(l.setting_status)) days[d].qualifies++
+      else if (isNonQualifiedStatus(l.setting_status)) days[d].nonQualifies++
+      else if (isNrpStatus(l.setting_status)) days[d].nrp++
     })
     return Object.entries(days)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, v]) => v)
-  }, [filtered])
+  }, [datedStatuses])
 
   const tableData = useMemo(() => {
     const map = {}
-    dedupeEventsByKey(
-      filtered,
-      (event) => `${event.campaign_name || 'N/A'}\u0000${event.setting_status || ''}\u0000${event.lead_id}`
-    ).forEach((l) => {
-      const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = { campaign: c, total: 0, qualifies: 0, nonQualifies: 0, nrp: 0 }
-      map[c].total++
-      if (l.setting_status?.toLowerCase() === 'lead qualifié') map[c].qualifies++
-      else if (l.setting_status?.toLowerCase() === 'lead non qualifié') map[c].nonQualifies++
-      else if (l.setting_status?.toLowerCase() === 'nrp') map[c].nrp++
+    const row = (c) => (map[c] ||= { campaign: c, total: 0, qualifies: 0, nonQualifies: 0, nrp: 0 })
+    createdInPeriod.forEach((l) => { row(l.campaign_name || 'N/A').total++ })
+    datedStatuses.forEach((l) => {
+      const r = row(l.campaign_name || 'N/A')
+      if (isQualifiedStatus(l.setting_status)) r.qualifies++
+      else if (isNonQualifiedStatus(l.setting_status)) r.nonQualifies++
+      else if (isNrpStatus(l.setting_status)) r.nrp++
     })
     return Object.values(map).sort((a, b) => b.total - a.total)
-  }, [filtered])
+  }, [createdInPeriod, datedStatuses])
 
   const funnelSteps = useMemo(() => {
     const steps = [
@@ -532,7 +484,7 @@ export default function SettingContent({ leads }) {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
             {funnelSteps.map((step, i) => {
               const maxCount = funnelSteps[0].count || 1
-              const widthPercent = (step.count / maxCount) * 100
+              const widthPercent = Math.min(100, (step.count / maxCount) * 100)
               const opacity = 1 - i * 0.15
               return (
                 <div key={step.label}>

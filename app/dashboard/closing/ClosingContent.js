@@ -7,7 +7,13 @@ import {
   dedupeEventsByKey,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
+  eventDay,
   filterEventsByDateRange,
+  filterEventsByDimensions,
+  isDealQualifiedStatus,
+  isDealWonStatus,
+  isNoShowStatus,
+  isQualifiedStatus,
   latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
@@ -164,94 +170,60 @@ export default function ClosingContent({ leads }) {
     [leads]
   )
 
-  // Cohorte : tous les leads qualifiés en Setting, quelle que soit la date —
-  // le statut Setting reflète l'état ACTUEL (source Airtable, pas une date de
-  // qualification fiable), donc filtrer cette cohorte par date n'a pas de sens.
-  const filteredSettingEvents = useMemo(() => {
-    let data = enrichedSettingEvents
-    if (filterPlatform) data = data.filter((l) => l.platform === filterPlatform)
-    if (filterCampaign) data = data.filter((l) => l.campaign_name === filterCampaign)
-    if (filterSocial) data = data.filter((l) => l.social_network === filterSocial)
-    return data
-  }, [enrichedSettingEvents, filterPlatform, filterCampaign, filterSocial])
+  const dimensionFilters = useMemo(
+    () => ({ platform: filterPlatform, campaign: filterCampaign, social: filterSocial }),
+    [filterPlatform, filterCampaign, filterSocial]
+  )
 
-  const cohortLeadIds = useMemo(
-    () => new Set(
-      filteredSettingEvents
-        .filter((event) => event.setting_status === 'Lead qualifié')
-        .map((event) => event.lead_id)
+  // RDV = lead dont le statut Setting ACTUEL est "Lead qualifié", daté par sa
+  // date réelle ("Date Setting") — même chiffre que "Leads Qualifiés" sur
+  // Setting et "Lead Qualifié" sur Leads.
+  const rdvStatuses = useMemo(
+    () => filterEventsByDimensions(
+      filterEventsByDateRange(
+        latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+        startDate,
+        endDate
+      ),
+      dimensionFilters
+    ).filter((e) => isQualifiedStatus(e.setting_status)),
+    [enrichedSettingEvents, startDate, endDate, dimensionFilters]
+  )
+
+  // Issues Closing datées par leur propre date (passage de stage côté GHL).
+  // On n'exige pas que le lead soit encore "Lead qualifié" en Setting : un
+  // No-Show recontacté puis repassé en NRP disparaîtrait sinon de cette page
+  // alors qu'il compte sur Leads et Coûts.
+  const datedClosingEvents = useMemo(
+    () => filterEventsByDimensions(
+      filterEventsByDateRange(enrichedClosingEvents, startDate, endDate),
+      dimensionFilters
     ),
-    [filteredSettingEvents]
+    [enrichedClosingEvents, startDate, endDate, dimensionFilters]
   )
-  const cohortClosingEvents = useMemo(
-    () => enrichedClosingEvents.filter((event) => cohortLeadIds.has(event.lead_id)),
-    [enrichedClosingEvents, cohortLeadIds]
-  )
-  // Le filtre de date s'applique ici, directement sur la date réelle de
-  // l'issue Closing (event_at = date du passage No Show / Deal Qualifié /
-  // Deal Won côté GHL), pas sur la date de qualification du lead.
-  const qualifiedClosingEvents = useMemo(
-    () => filterEventsByDateRange(cohortClosingEvents, startDate, endDate),
-    [cohortClosingEvents, startDate, endDate]
-  )
-  const total = countDistinctLeads(qualifiedClosingEvents)
   const uniqueStatusEvents = useMemo(
     () => dedupeEventsByKey(
-      qualifiedClosingEvents,
+      datedClosingEvents,
       (event) => `${event.closing_status || ''}\u0000${event.lead_id}`
     ),
-    [qualifiedClosingEvents]
+    [datedClosingEvents]
   )
   const passedClosingEvents = useMemo(
-    () => latestEventByLead(qualifiedClosingEvents),
-    [qualifiedClosingEvents]
+    () => latestEventByLead(datedClosingEvents),
+    [datedClosingEvents]
   )
 
-  // Un RDV correspond à un lead qualifié par le Setting (toute la cohorte,
-  // indépendamment du filtre de date qui ne porte que sur l'issue Closing).
-  const total_rdv = cohortLeadIds.size
-
-  const no_show = useMemo(
-    () => countDistinctLeads(passedClosingEvents, d => d.closing_status === 'No-Show'),
-    [passedClosingEvents]
-  )
-
+  const total_rdv = rdvStatuses.length
+  const no_show = countDistinctLeads(passedClosingEvents, (d) => isNoShowStatus(d.closing_status))
   // Un événement Closing "vide" marque une clôture explicite (lead retiré du pipeline
   // Closing) — il ne doit jamais compter comme un RDV passé résolu.
-  const rdv_passes = countDistinctLeads(passedClosingEvents, d => Boolean(d.closing_status))
+  const rdv_passes = countDistinctLeads(passedClosingEvents, (d) => Boolean(d.closing_status))
+  const deal_qualifies = countDistinctLeads(datedClosingEvents, (d) => isDealQualifiedStatus(d.closing_status))
+  const deal_won = countDistinctLeads(datedClosingEvents, (d) => isDealWonStatus(d.closing_status))
 
   const taux_no_show = rdv_passes > 0
     ? (no_show / rdv_passes * 100).toFixed(1)
     : 0
-
-  const rdv_en_cours = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal'),
-    [qualifiedClosingEvents]
-  )
-
-  const deal_qualifies = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Qualifié'),
-    [qualifiedClosingEvents]
-  )
-
-  const deal_won = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Won'),
-    [qualifiedClosingEvents]
-  )
-
-  const deal_lost = useMemo(
-    () => countDistinctLeads(qualifiedClosingEvents, d => d.closing_status === 'Deal Lost'),
-    [qualifiedClosingEvents]
-  )
-
-  // "Show" (tout statut Closing hors No-Show) mélange des statuts non vérifiés
-  // (Deal, Deal Lost, Deal Non Qualifié) avec les statuts vérifiés — on ne
-  // l'affiche plus. RDV Passés (tout lead avec une issue Closing connue) sert
-  // de base plus sûre pour ces taux.
-  const taux_deal_qualifie = rdv_passes > 0
-    ? (deal_qualifies / rdv_passes * 100).toFixed(1)
-    : 0
-
   const taux_deal_won = rdv_passes > 0
     ? (deal_won / rdv_passes * 100).toFixed(1)
     : 0
@@ -259,35 +231,29 @@ export default function ClosingContent({ leads }) {
   const dailyData = useMemo(() => {
     const days = {}
     const ensureDay = (d) => {
-      if (!days[d]) days[d] = { date: d, showIds: new Set(), noShowIds: new Set(), dealWonIds: new Set(), dealQualifiedIds: new Set() }
+      if (!days[d]) days[d] = { date: d, noShowIds: new Set(), dealWonIds: new Set(), dealQualifiedIds: new Set() }
       return days[d]
     }
     passedClosingEvents.forEach((l) => {
-      const d = l.event_at?.split('T')[0]
-      if (d) {
-        const day = ensureDay(d)
-        if (l.closing_status === 'No-Show') day.noShowIds.add(l.lead_id)
-        else if (l.closing_status) day.showIds.add(l.lead_id)
-      }
+      const d = eventDay(l.event_at)
+      if (d && isNoShowStatus(l.closing_status)) ensureDay(d).noShowIds.add(l.lead_id)
     })
-    qualifiedClosingEvents.forEach((l) => {
-      const d = l.event_at?.split('T')[0]
-      const status = l.closing_status?.toLowerCase()
-      if (!d || (status !== 'deal won' && status !== 'deal qualifié')) return
+    datedClosingEvents.forEach((l) => {
+      const d = eventDay(l.event_at)
+      if (!d || !isDealQualifiedStatus(l.closing_status)) return
       const day = ensureDay(d)
-      if (status === 'deal won') day.dealWonIds.add(l.lead_id)
-      else day.dealQualifiedIds.add(l.lead_id)
+      day.dealQualifiedIds.add(l.lead_id)
+      if (isDealWonStatus(l.closing_status)) day.dealWonIds.add(l.lead_id)
     })
     return Object.entries(days)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, value]) => ({
         date: value.date,
-        show: value.showIds.size,
         noShow: value.noShowIds.size,
         dealWon: value.dealWonIds.size,
         dealQualifies: value.dealQualifiedIds.size,
       }))
-  }, [passedClosingEvents, qualifiedClosingEvents])
+  }, [passedClosingEvents, datedClosingEvents])
 
   const closingStatusData = useMemo(() => {
     const map = {}
@@ -300,91 +266,57 @@ export default function ClosingContent({ leads }) {
       .sort((a, b) => b.value - a.value))
   }, [uniqueStatusEvents])
 
+  const dealWonEvents = useMemo(
+    () => dedupeEventsByLead(datedClosingEvents.filter((d) => isDealWonStatus(d.closing_status))),
+    [datedClosingEvents]
+  )
   const dealWonByCampaign = useMemo(
-    () => getTop5WithOthers(aggregateBy(
-      dedupeEventsByLead(qualifiedClosingEvents.filter((d) => d.closing_status?.toLowerCase() === 'deal won')),
-      (l) => l.campaign_name
-    )),
-    [qualifiedClosingEvents]
+    () => getTop5WithOthers(aggregateBy(dealWonEvents, (l) => l.campaign_name)),
+    [dealWonEvents]
   )
   const dealWonByPlatform = useMemo(
-    () => getTop5WithOthers(aggregateBy(
-      dedupeEventsByLead(qualifiedClosingEvents.filter((d) => d.closing_status?.toLowerCase() === 'deal won')),
-      (l) => l.platform
-    )),
-    [qualifiedClosingEvents]
+    () => getTop5WithOthers(aggregateBy(dealWonEvents, (l) => l.platform)),
+    [dealWonEvents]
   )
 
-  const campaignBarData = useMemo(() => {
-    const map = {}
-    passedClosingEvents.forEach((l) => {
-      const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = { name: c, showIds: new Set(), noShowIds: new Set() }
-      if (l.closing_status === 'No-Show') map[c].noShowIds.add(l.lead_id)
-      else if (l.closing_status) map[c].showIds.add(l.lead_id)
-    })
-    return Object.values(map)
-      .map((value) => ({ name: value.name, Show: value.showIds.size, 'No Show': value.noShowIds.size }))
-      .filter((d) => d.Show > 0 || d['No Show'] > 0)
-  }, [passedClosingEvents])
+  const campaignBarData = useMemo(
+    () => aggregateBy(passedClosingEvents.filter((l) => isNoShowStatus(l.closing_status)), (l) => l.campaign_name)
+      .map(({ name, value }) => ({ name, 'No Show': value })),
+    [passedClosingEvents]
+  )
 
   const tableData = useMemo(() => {
     const map = {}
+    const row = (c) => (map[c] ||= {
+      campaign: c, rdvIds: new Set(), noShowIds: new Set(), dealQualifiedIds: new Set(), dealWonIds: new Set(),
+    })
+    rdvStatuses.forEach((l) => row(l.campaign_name || 'N/A').rdvIds.add(l.lead_id))
     passedClosingEvents.forEach((l) => {
-      const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = {
-        campaign: c,
-        appointmentIds: new Set(),
-        showIds: new Set(),
-        noShowIds: new Set(),
-        dealQualifiedIds: new Set(), dealWonIds: new Set(),
-      }
-      if (l.closing_status === 'No-Show') {
-        map[c].noShowIds.add(l.lead_id)
-      } else if (l.closing_status) {
-        map[c].showIds.add(l.lead_id)
-      }
+      if (isNoShowStatus(l.closing_status)) row(l.campaign_name || 'N/A').noShowIds.add(l.lead_id)
     })
-    qualifiedClosingEvents.forEach((l) => {
-      const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = {
-        campaign: c, appointmentIds: new Set(), showIds: new Set(), noShowIds: new Set(),
-        dealQualifiedIds: new Set(), dealWonIds: new Set(),
-      }
-      if (l.closing_status?.toLowerCase() === 'deal qualifié') map[c].dealQualifiedIds.add(l.lead_id)
-      if (l.closing_status?.toLowerCase() === 'deal won') map[c].dealWonIds.add(l.lead_id)
-    })
-    filteredSettingEvents.forEach((l) => {
-      if (l.setting_status !== 'Lead qualifié') return
-      const c = l.campaign_name || 'N/A'
-      if (!map[c]) map[c] = {
-        campaign: c, appointmentIds: new Set(), showIds: new Set(), noShowIds: new Set(),
-        dealQualifiedIds: new Set(), dealWonIds: new Set(),
-      }
-      map[c].appointmentIds.add(l.lead_id)
+    datedClosingEvents.forEach((l) => {
+      if (!isDealQualifiedStatus(l.closing_status)) return
+      const r = row(l.campaign_name || 'N/A')
+      r.dealQualifiedIds.add(l.lead_id)
+      if (isDealWonStatus(l.closing_status)) r.dealWonIds.add(l.lead_id)
     })
     return Object.values(map)
       .map((value) => ({
         campaign: value.campaign,
-        totalRdv: value.appointmentIds.size,
-        show: value.showIds.size,
+        totalRdv: value.rdvIds.size,
         noShow: value.noShowIds.size,
         dealQualifies: value.dealQualifiedIds.size,
         dealWon: value.dealWonIds.size,
       }))
       .sort((a, b) => b.dealWon - a.dealWon)
-  }, [filteredSettingEvents, passedClosingEvents, qualifiedClosingEvents])
+  }, [rdvStatuses, passedClosingEvents, datedClosingEvents])
 
-  const funnelSteps = useMemo(() => {
-    const steps = [
-      { label: 'Total Leads', count: total },
-      { label: 'Total RDV', count: total_rdv },
-      { label: 'RDV Passés', count: rdv_passes },
-      { label: 'Deal Qualifié', count: deal_qualifies },
-      { label: 'Deal Won', count: deal_won },
-    ]
-    return steps
-  }, [total, total_rdv, rdv_passes, deal_qualifies, deal_won])
+  const funnelSteps = useMemo(() => [
+    { label: 'Total RDV', count: total_rdv },
+    { label: 'RDV Passés', count: rdv_passes },
+    { label: 'Deal Qualifié', count: deal_qualifies },
+    { label: 'Deal Won', count: deal_won },
+  ], [total_rdv, rdv_passes, deal_qualifies, deal_won])
 
   const resetFilters = () => {
     setStartDate('')
@@ -596,7 +528,7 @@ export default function ClosingContent({ leads }) {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
             {funnelSteps.map((step, i) => {
               const maxCount = funnelSteps[0].count || 1
-              const widthPercent = (step.count / maxCount) * 100
+              const widthPercent = Math.min(100, (step.count / maxCount) * 100)
               const opacity = 1 - i * 0.1
               return (
                 <div key={step.label}>

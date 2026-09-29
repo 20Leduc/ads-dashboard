@@ -9,7 +9,11 @@ import {
   countDistinctLeads,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
+  eventDay,
   filterEventsByDateRange,
+  isDealQualifiedStatus,
+  isDealWonStatus,
+  isQualifiedStatus,
   latestEventByLead,
   splitLeadEvents,
 } from '@/lib/lead-events'
@@ -102,49 +106,31 @@ export default function LeadsContent({ leads }) {
     [filtered]
   )
 
-  // Chaque étape est filtrée par la date de son PROPRE événement (création du
-  // lead, statut Setting, statut Closing) — pas par une cohorte figée sur la
-  // date de création du lead, comme sur Setting/Closing.
-  //
-  // Seuls "Deal Qualifié" et "Deal Won" sont des statuts Closing vérifiés
-  // (contre GHL) et font foi. Les autres statuts Closing (Deal, Deal Lost,
-  // Deal Non Qualifié, No-Show) proviennent d'un historique non fiable et ne
-  // comptent plus comme qualifiants automatiquement — "Lead Qualifié" est basé
-  // sur le statut Setting actuel (source Airtable, fiable). On prend le rang
-  // Closing le plus HAUT jamais atteint parmi les statuts vérifiés (pas le
-  // dernier événement), pour rester acquis même si le deal a ensuite échoué ;
-  // sa date est celle de l'événement qui a atteint ce rang.
+  // Chaque étape compte les leads dont le PROPRE événement tombe dans la
+  // période : création (Leads), statut Setting actuel daté par "Date Setting"
+  // (Lead Qualifié), événement Closing vérifié GHL (Deal Qualifié, qui inclut
+  // Deal Won ; Deal Won). Mêmes définitions que Setting, Closing et Coûts.
   const funnelData = useMemo(() => {
-    function closingRank(status) {
-      const s = status.toLowerCase()
-      if (s === 'deal won') return 3
-      if (s === 'deal qualifié') return 2
-      return 0 // Deal Lost, No-Show, Deal, Deal Non Qualifié: statut non vérifié
-    }
-
-    const currentSettingByLead = latestEventByLead(
-      enrichedSettingEvents.filter((e) => e.setting_status)
-    )
-    const leadQualifieEvents = currentSettingByLead.filter(
-      (e) => e.setting_status.toLowerCase() === 'lead qualifié'
-    )
-
-    const maxClosingByLead = new Map()
-    enrichedClosingEvents.forEach((e) => {
-      if (!e.closing_status) return
-      const rank = closingRank(e.closing_status)
-      if (rank === 0) return
-      const current = maxClosingByLead.get(e.lead_id)
-      if (!current || rank > current.rank) maxClosingByLead.set(e.lead_id, { rank, event: e })
-    })
-    const dealQualifieEvents = [...maxClosingByLead.values()].filter((d) => d.rank >= 2).map((d) => d.event)
-    const dealWonEvents = [...maxClosingByLead.values()].filter((d) => d.rank >= 3).map((d) => d.event)
+    const currentSettings = latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status))
+    const datedClosingEvents = filterEventsByDateRange(enrichedClosingEvents, startDate, endDate)
 
     const steps = [
       { label: 'Leads', count: totalLeads },
-      { label: 'Lead Qualifié', count: filterEventsByDateRange(leadQualifieEvents, startDate, endDate).length },
-      { label: 'Deal Qualifié', count: filterEventsByDateRange(dealQualifieEvents, startDate, endDate).length },
-      { label: 'Deal Won', count: filterEventsByDateRange(dealWonEvents, startDate, endDate).length },
+      {
+        label: 'Lead Qualifié',
+        count: countDistinctLeads(
+          filterEventsByDateRange(currentSettings, startDate, endDate),
+          (e) => isQualifiedStatus(e.setting_status)
+        ),
+      },
+      {
+        label: 'Deal Qualifié',
+        count: countDistinctLeads(datedClosingEvents, (e) => isDealQualifiedStatus(e.closing_status)),
+      },
+      {
+        label: 'Deal Won',
+        count: countDistinctLeads(datedClosingEvents, (e) => isDealWonStatus(e.closing_status)),
+      },
     ]
 
     let prev = 0
@@ -158,7 +144,7 @@ export default function LeadsContent({ leads }) {
   const dailyData = useMemo(() => {
     const days = {}
     filtered.forEach((l) => {
-      const d = l.event_at?.split('T')[0]
+      const d = eventDay(l.event_at)
       if (d) days[d] = (days[d] || 0) + 1
     })
     return Object.entries(days)
@@ -456,7 +442,7 @@ export default function LeadsContent({ leads }) {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
             {funnelData.map((step, i) => {
               const maxCount = funnelData[0].count || 1
-              const widthPercent = (step.count / maxCount) * 100
+              const widthPercent = Math.min(100, (step.count / maxCount) * 100)
               const opacity = 1 - i * 0.12
               return (
                 <div key={step.label}>

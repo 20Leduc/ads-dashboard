@@ -6,8 +6,15 @@ import {
   countDistinctLeads,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
+  eventDay,
   filterEventsByDateRange,
+  filterEventsByDimensions,
+  isDealQualifiedStatus,
+  isDealWonStatus,
+  isNoShowStatus,
+  isQualifiedStatus,
   latestEventByLead,
+  sameDimension,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -173,24 +180,29 @@ const CustomLabel = ({ x, width, value }) => {
   )
 }
 
+// Jour UTC, contrairement aux leads (jour de Paris) : le champ "Date" de la
+// table Airtable Dépenses est configuré en UTC, c'est ce jour-là qu'Airtable
+// affiche.
+const spendDay = (row) => row.spend_date?.split('T')[0]
+
 function filterSpend(spend, filters) {
   const hasPlatform = spend.some((row) => row.platform !== null && row.platform !== undefined)
   const hasSocial = spend.some((row) => row.social_network !== null && row.social_network !== undefined)
   return spend.filter((d) => {
-    const date = d.spend_date?.split('T')[0]
+    const date = spendDay(d)
     if (date && filters.startDate && date < filters.startDate) return false
     if (date && filters.endDate && date > filters.endDate) return false
-    if (filters.platform && hasPlatform && d.platform !== filters.platform) return false
-    if (filters.social && hasSocial && d.social_network !== filters.social) return false
+    if (filters.platform && hasPlatform && !sameDimension(d.platform, filters.platform)) return false
+    if (filters.social && hasSocial && !sameDimension(d.social_network, filters.social)) return false
     return true
   })
 }
 
 function filterEventDimensions(events, filters) {
-  let data = filterEventsByDateRange(events, filters.startDate, filters.endDate)
-  if (filters.platform) data = data.filter((event) => event.platform === filters.platform)
-  if (filters.social) data = data.filter((event) => event.social_network === filters.social)
-  return data
+  return filterEventsByDimensions(
+    filterEventsByDateRange(events, filters.startDate, filters.endDate),
+    { platform: filters.platform, social: filters.social }
+  )
 }
 
 function KpiCard({ icon: Icon, label, value, sub }) {
@@ -285,8 +297,13 @@ export default function CostsContent({ spendData, leadsData }) {
     () => dedupeEventsByLead(filterEventDimensions(leadCreatedEvents, filters)),
     [leadCreatedEvents, filters]
   )
+  // Statut Setting ACTUEL de chaque lead, daté par "Date Setting" — mêmes
+  // chiffres que la page Setting.
   const filteredSettingEvents = useMemo(
-    () => filterEventDimensions(enrichedSettingEvents, filters),
+    () => filterEventDimensions(
+      latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+      filters
+    ),
     [enrichedSettingEvents, filters]
   )
   const filteredClosingEvents = useMemo(
@@ -322,17 +339,17 @@ export default function CostsContent({ spendData, leadsData }) {
   // Closing/Setting — pas "tout lead ayant un statut Closing", qui mélangeait
   // ici des issues (No-Show compris) avec le nombre de RDV programmés.
   const totalRdv = useMemo(
-    () => countDistinctLeads(filteredSettingEvents, (l) => l.setting_status?.toLowerCase() === 'lead qualifié'),
+    () => countDistinctLeads(filteredSettingEvents, (l) => isQualifiedStatus(l.setting_status)),
     [filteredSettingEvents]
   )
 
   const noShow = useMemo(
-    () => countDistinctLeads(latestClosingEvents, (l) => l.closing_status === 'No-Show'),
+    () => countDistinctLeads(latestClosingEvents, (l) => isNoShowStatus(l.closing_status)),
     [latestClosingEvents]
   )
 
   const dealQualifies = useMemo(
-    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'deal qualifié'),
+    () => countDistinctLeads(filteredClosingEvents, (l) => isDealQualifiedStatus(l.closing_status)),
     [filteredClosingEvents]
   )
 
@@ -342,7 +359,7 @@ export default function CostsContent({ spendData, leadsData }) {
   )
 
   const dealWon = useMemo(
-    () => countDistinctLeads(filteredClosingEvents, (l) => l.closing_status?.toLowerCase() === 'deal won'),
+    () => countDistinctLeads(filteredClosingEvents, (l) => isDealWonStatus(l.closing_status)),
     [filteredClosingEvents]
   )
 
@@ -360,16 +377,16 @@ export default function CostsContent({ spendData, leadsData }) {
       return days[d]
     }
     filteredSpend.forEach((d) => {
-      const date = d.spend_date?.split('T')[0]
+      const date = spendDay(d)
       if (date) ensureDay(date).spend += Number(d.spend || 0)
     })
     filteredLeads.forEach((l) => {
-      const date = l.event_at?.split('T')[0]
+      const date = eventDay(l.event_at)
       if (date) ensureDay(date).leadIds.add(l.lead_id)
     })
     filteredSettingEvents.forEach((l) => {
-      if (l.setting_status?.toLowerCase() !== 'lead qualifié') return
-      const date = l.event_at?.split('T')[0]
+      if (!isQualifiedStatus(l.setting_status)) return
+      const date = eventDay(l.event_at)
       if (date) ensureDay(date).rdvIds.add(l.lead_id)
     })
     return Object.entries(days)
@@ -455,12 +472,12 @@ export default function CostsContent({ spendData, leadsData }) {
     filteredSettingEvents.forEach((l) => {
       const name = l.campaign_name || 'N/A'
       if (!statusMap[name]) statusMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
-      if (l.setting_status?.toLowerCase() === 'lead qualifié') statusMap[name].qualifiedIds.add(l.lead_id)
+      if (isQualifiedStatus(l.setting_status)) statusMap[name].qualifiedIds.add(l.lead_id)
     })
     filteredClosingEvents.forEach((l) => {
       const name = l.campaign_name || 'N/A'
       if (!statusMap[name]) statusMap[name] = { qualifiedIds: new Set(), dealWonIds: new Set() }
-      if (l.closing_status?.toLowerCase() === 'deal won') statusMap[name].dealWonIds.add(l.lead_id)
+      if (isDealWonStatus(l.closing_status)) statusMap[name].dealWonIds.add(l.lead_id)
     })
 
     const allNames = new Set([...Object.keys(spendMap), ...Object.keys(realLeadsMap), ...Object.keys(statusMap)])
