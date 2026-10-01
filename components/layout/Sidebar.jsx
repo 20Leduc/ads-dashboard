@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useDashboardData } from '@/lib/DashboardDataContext'
+import { clientPath } from '@/lib/client-routes'
 import {
   Users,
   CalendarCheck,
@@ -14,17 +15,18 @@ import {
 } from 'lucide-react'
 
 const dashboards = [
-  { label: 'Accueil', href: '/dashboard', icon: Home },
-  { label: 'Leads', href: '/dashboard/leads', icon: Users },
-  { label: 'Setting', href: '/dashboard/setting', icon: CalendarCheck },
-  { label: 'Closing', href: '/dashboard/closing', icon: Handshake },
-  { label: 'Ads Performance', href: '/dashboard/ads', icon: BarChart3 },
-  { label: 'Coûts', href: '/dashboard/costs', icon: DollarSign },
+  { label: 'Accueil', page: '', icon: Home },
+  { label: 'Leads', page: 'leads', icon: Users },
+  { label: 'Setting', page: 'setting', icon: CalendarCheck },
+  { label: 'Closing', page: 'closing', icon: Handshake },
+  { label: 'Ads Performance', page: 'ads', icon: BarChart3 },
+  { label: 'Coûts', page: 'costs', icon: DollarSign },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
   const { clients, clientSchema, selectClient } = useDashboardData()
+  const slug = clientSchema?.slug
 
   return (
     <aside
@@ -74,7 +76,7 @@ export default function Sidebar() {
           {clients.length > 1 ? (
             <select
               aria-label="Choisir le client"
-              value={clientSchema.schema_name}
+              value={clientSchema.slug}
               onChange={(e) => selectClient(e.target.value)}
               style={{
                 width: '100%',
@@ -89,7 +91,7 @@ export default function Sidebar() {
               }}
             >
               {clients.map((c) => (
-                <option key={c.schema_name} value={c.schema_name}>{c.name}</option>
+                <option key={c.slug} value={c.slug}>{c.name}</option>
               ))}
             </select>
           ) : (
@@ -119,12 +121,13 @@ export default function Sidebar() {
 
       <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {dashboards.map((item) => {
-          const isActive = pathname === item.href
+          const href = clientPath(slug, item.page)
+          const isActive = pathname === href
           const Icon = item.icon
           return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={item.page || 'accueil'}
+              href={href}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -165,7 +168,7 @@ export default function Sidebar() {
 
       {/* Section SETTINGS */}
       <Link
-        href="/dashboard/setting"
+        href={clientPath(slug, 'setting')}
         style={{
           display: 'flex',
           alignItems: 'center',
