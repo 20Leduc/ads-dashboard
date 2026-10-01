@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useDashboardData } from '@/lib/DashboardDataContext'
 import {
   Users,
   CalendarCheck,
@@ -23,6 +24,7 @@ const dashboards = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const { clients, clientSchema, selectClient } = useDashboardData()
 
   return (
     <aside
@@ -53,6 +55,50 @@ export default function Sidebar() {
           AICLIENTLY
         </span>
       </div>
+
+      {/* Client */}
+      {clientSchema && (
+        <div style={{ padding: '0 12px 16px' }}>
+          <div
+            style={{
+              color: '#888888',
+              fontSize: '11px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: '6px',
+            }}
+          >
+            Client
+          </div>
+          {clients.length > 1 ? (
+            <select
+              aria-label="Choisir le client"
+              value={clientSchema.schema_name}
+              onChange={(e) => selectClient(e.target.value)}
+              style={{
+                width: '100%',
+                background: '#0a0a0a',
+                border: '1px solid #1f1f1f',
+                color: '#ffffff',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {clients.map((c) => (
+                <option key={c.schema_name} value={c.schema_name}>{c.name}</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ color: '#ffffff', fontSize: '14px', fontWeight: 500 }}>
+              {clientSchema.name}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Separator */}
       <div style={{ height: '1px', background: '#1f1f1f', margin: '0 0 8px' }} />
