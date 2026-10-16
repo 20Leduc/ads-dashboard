@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   countDistinctLeads,
+  dealEntries,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
   eventDay,
@@ -17,6 +18,7 @@ import {
   sameDimension,
   splitLeadEvents,
 } from '@/lib/lead-events'
+import { filterSpendByDateRange, spendDay, weightedCpm } from '@/lib/spend'
 import {
   DollarSign,
   TrendingDown,
@@ -26,6 +28,7 @@ import {
   Trophy,
   UserX,
   Send,
+  BadgeCheck,
 } from 'lucide-react'
 import {
   LineChart,
@@ -92,6 +95,7 @@ const labelStyle = {
 
 const SETTING_STATUSES = [
   'Lead Qualifié',
+  'Lead Semi qualifié',
   'Lead Non qualifié',
   'Lead Non traité',
   'NRP',
@@ -104,6 +108,7 @@ const SETTING_STATUSES = [
 
 const CLOSING_STATUSES = [
   'Deal',
+  'Show',
   'No-Show',
   'Deal Qualifié',
   'Deal Non Qualifié',
@@ -111,9 +116,10 @@ const CLOSING_STATUSES = [
   'Proposal Signed',
   'Deal Won',
   'Deal Lost',
+  'Deal Non traité',
 ]
 
-const POSITIVE_CLOSING_STATUSES = ['Deal', 'Deal Qualifié', 'Proposal Sent', 'Proposal Signed', 'Deal Won']
+const POSITIVE_CLOSING_STATUSES = ['Deal', 'Show', 'Deal Qualifié', 'Proposal Sent', 'Proposal Signed', 'Deal Won']
 
 function formatCurrency(val) {
   if (val == null || isNaN(val)) return '0,00 €'
@@ -180,18 +186,10 @@ const CustomLabel = ({ x, width, value }) => {
   )
 }
 
-// Jour UTC, contrairement aux leads (jour de Paris) : le champ "Date" de la
-// table Airtable Dépenses est configuré en UTC, c'est ce jour-là qu'Airtable
-// affiche.
-const spendDay = (row) => row.spend_date?.split('T')[0]
-
 function filterSpend(spend, filters) {
   const hasPlatform = spend.some((row) => row.platform !== null && row.platform !== undefined)
   const hasSocial = spend.some((row) => row.social_network !== null && row.social_network !== undefined)
-  return spend.filter((d) => {
-    const date = spendDay(d)
-    if (date && filters.startDate && date < filters.startDate) return false
-    if (date && filters.endDate && date > filters.endDate) return false
+  return filterSpendByDateRange(spend, filters.startDate, filters.endDate).filter((d) => {
     if (filters.platform && hasPlatform && !sameDimension(d.platform, filters.platform)) return false
     if (filters.social && hasSocial && !sameDimension(d.social_network, filters.social)) return false
     return true
@@ -202,6 +200,26 @@ function filterEventDimensions(events, filters) {
   return filterEventsByDimensions(
     filterEventsByDateRange(events, filters.startDate, filters.endDate),
     { platform: filters.platform, social: filters.social }
+  )
+}
+
+// Un graphe vide n'affiche que ses axes : on dit plutôt pourquoi il est vide.
+function EmptyChart({ height, message }) {
+  return (
+    <div
+      style={{
+        height,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#888888',
+        fontSize: '13px',
+        textAlign: 'center',
+        padding: '0 24px',
+      }}
+    >
+      {message}
+    </div>
   )
 }
 
@@ -284,6 +302,12 @@ export default function CostsContent({ spendData, leadsData }) {
     () => [...new Set(leadsData.map((l) => l.social_network).filter(Boolean))].sort(),
     [leadsData]
   )
+  // Filtre réseau social seulement si les dépenses le portent : sinon il
+  // réduirait les leads sans réduire la dépense, et fausserait tous les coûts.
+  const spendHasSocial = useMemo(
+    () => spendData.some((row) => row.social_network),
+    [spendData]
+  )
 
   const setFilter = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -325,13 +349,7 @@ export default function CostsContent({ spendData, leadsData }) {
     [filteredSpend]
   )
 
-  const cpmSum = useMemo(
-    () => filteredSpend.reduce((sum, d) => sum + Number(d.cpm || 0), 0),
-    [filteredSpend]
-  )
-
-  const cpmCount = filteredSpend.length
-  const avgCpm = cpmCount > 0 ? cpmSum / cpmCount : 0
+  const avgCpm = useMemo(() => weightedCpm(filteredSpend), [filteredSpend])
 
   const totalLeads = countDistinctLeads(filteredLeads)
 
@@ -363,8 +381,16 @@ export default function CostsContent({ spendData, leadsData }) {
     [filteredClosingEvents]
   )
 
+  // Deal = lead entré en Closing, daté de son entrée : même définition que
+  // la page d'accueil.
+  const totalDeals = useMemo(
+    () => filterEventDimensions(dealEntries(enrichedSettingEvents, enrichedClosingEvents), filters).length,
+    [enrichedSettingEvents, enrichedClosingEvents, filters]
+  )
+
   const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0
-  const cpDeal = totalRdv > 0 ? totalSpend / totalRdv : 0
+  const cpQualifiedLead = totalRdv > 0 ? totalSpend / totalRdv : 0
+  const cpDeal = totalDeals > 0 ? totalSpend / totalDeals : 0
   const cpDealQl = dealQualifies > 0 ? totalSpend / dealQualifies : 0
   const cpDealWon = dealWon > 0 ? totalSpend / dealWon : 0
   const cpNoShow = noShow > 0 ? totalSpend / noShow : 0
@@ -503,8 +529,8 @@ export default function CostsContent({ spendData, leadsData }) {
   }, [filteredSpend, filteredLeads, filteredSettingEvents, filteredClosingEvents])
 
   const IconsRow1 = [DollarSign, TrendingDown, Target]
-  const IconsRow2 = [Calendar, UserCheck, Trophy]
-  const IconsRow3 = [UserX, Send]
+  const IconsRow2 = [UserCheck, Calendar, BadgeCheck]
+  const IconsRow3 = [Trophy, UserX, Send]
 
   const kpiRows = [
     [
@@ -513,11 +539,12 @@ export default function CostsContent({ spendData, leadsData }) {
       { label: 'CPL', value: formatCurrency(cpl), sub: `${formatNumber(totalLeads)} leads` },
     ],
     [
-      { label: 'CP Deal', value: formatCurrency(cpDeal), sub: `${formatNumber(totalRdv)} RDV` },
+      { label: 'CP Lead Qualifié', value: formatCurrency(cpQualifiedLead), sub: `${formatNumber(totalRdv)} leads qualifiés` },
+      { label: 'CP Deal', value: formatCurrency(cpDeal), sub: `${formatNumber(totalDeals)} deals` },
       { label: 'CP Deal QL', value: formatCurrency(cpDealQl), sub: `${formatNumber(dealQualifies)} deals qualifiés` },
-      { label: 'CP Deal Won', value: formatCurrency(cpDealWon), sub: `${formatNumber(dealWon)} deals won` },
     ],
     [
+      { label: 'CP Deal Won', value: formatCurrency(cpDealWon), sub: `${formatNumber(dealWon)} deals won` },
       { label: 'CP No Show', value: formatCurrency(cpNoShow), sub: `${formatNumber(noShow)} no show` },
       { label: 'CP Proposal Sent', value: formatCurrency(cpProposalSent), sub: `${formatNumber(proposalSent)} proposals` },
     ],
@@ -582,19 +609,21 @@ export default function CostsContent({ spendData, leadsData }) {
             ))}
           </select>
         </div>
-        <div>
-          <label style={labelStyle}>Réseau social</label>
-          <select
-            value={filters.social}
-            onChange={(e) => setFilter('social', e.target.value)}
-            style={selectStyle}
-          >
-            <option value="">Tous</option>
-            {allSocials.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
+        {spendHasSocial && (
+          <div>
+            <label style={labelStyle}>Réseau social</label>
+            <select
+              value={filters.social}
+              onChange={(e) => setFilter('social', e.target.value)}
+              style={selectStyle}
+            >
+              <option value="">Tous</option>
+              {allSocials.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <button
           onClick={resetFilters}
           style={{
@@ -707,33 +736,41 @@ export default function CostsContent({ spendData, leadsData }) {
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Coûts par statut Setting
           </p>
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart data={settingCostData} margin={{ top: 80, right: 20, bottom: 90, left: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-              <XAxis dataKey="status" stroke="#888888" tick={{ fill: '#888888', fontSize: 11 }} angle={-35} textAnchor="end" height={90} interval={0} dy={10} />
-              <YAxis stroke="#888888" tick={{ fontSize: 12 }} tickFormatter={(v) => formatCurrency(v)} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v)} />
-              <Bar dataKey="cost" fill="#FFB347" radius={[4, 4, 0, 0]} label={<CustomLabel />} />
-            </BarChart>
-          </ResponsiveContainer>
+          {settingCostData.length === 0 ? (
+            <EmptyChart height={360} message="Aucun statut Setting sur cette période." />
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart data={settingCostData} margin={{ top: 80, right: 20, bottom: 90, left: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                <XAxis dataKey="status" stroke="#888888" tick={{ fill: '#888888', fontSize: 11 }} angle={-35} textAnchor="end" height={90} interval={0} dy={10} />
+                <YAxis stroke="#888888" tick={{ fontSize: 12 }} tickFormatter={(v) => formatCurrency(v)} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v)} />
+                <Bar dataKey="cost" fill="#FFB347" radius={[4, 4, 0, 0]} label={<CustomLabel />} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Coûts par statut Closing
           </p>
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart data={closingCostData} margin={{ top: 80, right: 20, bottom: 90, left: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-              <XAxis dataKey="status" stroke="#888888" tick={{ fill: '#888888', fontSize: 11 }} angle={-35} textAnchor="end" height={90} interval={0} dy={10} />
-              <YAxis stroke="#888888" tick={{ fontSize: 12 }} tickFormatter={(v) => formatCurrency(v)} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v)} />
-              <Bar dataKey="cost" radius={[4, 4, 0, 0]} label={<CustomLabel />}>
-                {closingCostData.map((entry, i) => (
-                  <Cell key={i} fill={POSITIVE_CLOSING_STATUSES.includes(entry.status) ? '#00D18B' : '#0088FE'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {closingCostData.length === 0 ? (
+            <EmptyChart height={360} message="Aucun statut Closing sur cette période." />
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart data={closingCostData} margin={{ top: 80, right: 20, bottom: 90, left: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+                <XAxis dataKey="status" stroke="#888888" tick={{ fill: '#888888', fontSize: 11 }} angle={-35} textAnchor="end" height={90} interval={0} dy={10} />
+                <YAxis stroke="#888888" tick={{ fontSize: 12 }} tickFormatter={(v) => formatCurrency(v)} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => formatCurrency(v)} />
+                <Bar dataKey="cost" radius={[4, 4, 0, 0]} label={<CustomLabel />}>
+                  {closingCostData.map((entry, i) => (
+                    <Cell key={i} fill={POSITIVE_CLOSING_STATUSES.includes(entry.status) ? '#00D18B' : '#0088FE'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -742,6 +779,14 @@ export default function CostsContent({ spendData, leadsData }) {
         <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
           CPL par campagne
         </p>
+        {campaignCplData.length === 0 ? (
+          <EmptyChart
+            height={300}
+            message={filteredLeads.length > 0 && filteredSpend.length > 0
+              ? 'Aucun lead de la période n’est rattaché à une campagne qui a des dépenses.'
+              : 'Aucune donnée sur cette période.'}
+          />
+        ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={campaignCplData} layout="vertical" margin={{ top: 5, right: 80, bottom: 5, left: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
@@ -760,6 +805,7 @@ export default function CostsContent({ spendData, leadsData }) {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        )}
       </div>
 
       {/* Campaign table */}
