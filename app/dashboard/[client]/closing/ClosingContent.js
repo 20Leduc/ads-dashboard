@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
+  buildClosingFunnel,
   countDistinctLeads,
   dedupeEventsByKey,
   dedupeEventsByLead,
@@ -14,7 +15,9 @@ import {
   isDealWonStatus,
   isNoShowStatus,
   isQualifiedStatus,
+  isRdvPassedStatus,
   latestEventByLead,
+  rdvLeadIds,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -215,9 +218,16 @@ export default function ClosingContent({ leads }) {
 
   const total_rdv = rdvStatuses.length
   const no_show = countDistinctLeads(passedClosingEvents, (d) => isNoShowStatus(d.closing_status))
-  // Un événement Closing "vide" marque une clôture explicite (lead retiré du pipeline
-  // Closing) — il ne doit jamais compter comme un RDV passé résolu.
-  const rdv_passes = countDistinctLeads(passedClosingEvents, (d) => Boolean(d.closing_status))
+  // Seules les issues d'un RDV comptent, pour des leads qui ont eu un RDV : ni
+  // "Deal" (RDV pas encore passé), ni un "Deal Lost" perdu avant tout RDV.
+  const leadsWithRdv = useMemo(
+    () => rdvLeadIds(enrichedSettingEvents, enrichedClosingEvents),
+    [enrichedSettingEvents, enrichedClosingEvents]
+  )
+  const rdv_passes = countDistinctLeads(
+    passedClosingEvents,
+    (d) => leadsWithRdv.has(d.lead_id) && isRdvPassedStatus(d.closing_status)
+  )
   const deal_qualifies = countDistinctLeads(datedClosingEvents, (d) => isDealQualifiedStatus(d.closing_status))
   const deal_won = countDistinctLeads(datedClosingEvents, (d) => isDealWonStatus(d.closing_status))
 
@@ -311,12 +321,18 @@ export default function ClosingContent({ leads }) {
       .sort((a, b) => b.dealWon - a.dealWon)
   }, [rdvStatuses, passedClosingEvents, datedClosingEvents])
 
-  const funnelSteps = useMemo(() => [
-    { label: 'Total RDV', count: total_rdv },
-    { label: 'RDV Passés', count: rdv_passes },
-    { label: 'Deal Qualifié', count: deal_qualifies },
-    { label: 'Deal Won', count: deal_won },
-  ], [total_rdv, rdv_passes, deal_qualifies, deal_won])
+  // Le funnel suit les RDV de la période jusqu'à leur issue : une étape ne
+  // peut pas dépasser la précédente, contrairement aux cartes, datées chacune
+  // par leur propre événement.
+  const funnelSteps = useMemo(() => {
+    const funnel = buildClosingFunnel(rdvStatuses, enrichedClosingEvents)
+    return [
+      { label: 'Total RDV', count: funnel.total },
+      { label: 'RDV Passés', count: funnel.passed },
+      { label: 'Deal Qualifié', count: funnel.qualified },
+      { label: 'Deal Won', count: funnel.won },
+    ]
+  }, [rdvStatuses, enrichedClosingEvents])
 
   const resetFilters = () => {
     setStartDate('')
@@ -522,8 +538,11 @@ export default function ClosingContent({ leads }) {
             flexDirection: 'column',
           }}
         >
-          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>
+          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '4px' }}>
             Funnel Closing
+          </p>
+          <p style={{ color: '#888888', fontSize: '12px', marginBottom: '16px' }}>
+            Les RDV de la période et ce qu’ils sont devenus
           </p>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '2px' }}>
             {funnelSteps.map((step, i) => {
