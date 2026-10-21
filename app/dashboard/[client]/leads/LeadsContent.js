@@ -263,6 +263,7 @@ export default function LeadsContent({ leads }) {
               background: '#0a0a0a',
               border: '1px solid #1f1f1f',
               color: '#ffffff',
+              colorScheme: 'dark',
               padding: '8px 12px',
               borderRadius: '8px',
               fontSize: '14px',
