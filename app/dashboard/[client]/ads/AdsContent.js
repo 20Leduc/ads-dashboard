@@ -13,7 +13,7 @@ import {
   isNonQualifiedStatus,
   isNrpStatus,
   isQualifiedStatus,
-  latestEventByLead,
+  currentSettingStatuses,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -188,7 +188,7 @@ export default function AdsContent({ leads }) {
   // chiffres que la page Setting.
   const filteredSettingEvents = useMemo(
     () => filterEventDimensions(
-      latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+      currentSettingStatuses(enrichedSettingEvents),
       filters
     ),
     [enrichedSettingEvents, filters]

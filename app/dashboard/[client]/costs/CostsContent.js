@@ -13,6 +13,7 @@ import {
   isDealWonStatus,
   isNoShowStatus,
   isQualifiedStatus,
+  currentSettingStatuses,
   latestEventByLead,
   sameDimension,
   splitLeadEvents,
@@ -324,7 +325,7 @@ export default function CostsContent({ spendData, leadsData }) {
   // chiffres que la page Setting.
   const filteredSettingEvents = useMemo(
     () => filterEventDimensions(
-      latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+      currentSettingStatuses(enrichedSettingEvents),
       filters
     ),
     [enrichedSettingEvents, filters]

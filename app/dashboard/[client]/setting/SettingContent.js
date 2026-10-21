@@ -11,7 +11,7 @@ import {
   isNonQualifiedStatus,
   isNrpStatus,
   isQualifiedStatus,
-  latestEventByLead,
+  currentSettingStatuses,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -182,7 +182,7 @@ export default function SettingContent({ leads }) {
   const datedStatuses = useMemo(
     () => filterEventsByDimensions(
       filterEventsByDateRange(
-        latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+        currentSettingStatuses(enrichedSettingEvents),
         startDate,
         endDate
       ),

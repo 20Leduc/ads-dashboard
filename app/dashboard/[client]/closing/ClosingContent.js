@@ -16,6 +16,7 @@ import {
   isNoShowStatus,
   isQualifiedStatus,
   isRdvPassedStatus,
+  currentSettingStatuses,
   latestEventByLead,
   rdvLeadIds,
   splitLeadEvents,
@@ -184,7 +185,7 @@ export default function ClosingContent({ leads }) {
   const rdvStatuses = useMemo(
     () => filterEventsByDimensions(
       filterEventsByDateRange(
-        latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status)),
+        currentSettingStatuses(enrichedSettingEvents),
         startDate,
         endDate
       ),

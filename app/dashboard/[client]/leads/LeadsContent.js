@@ -14,7 +14,7 @@ import {
   isDealQualifiedStatus,
   isDealWonStatus,
   isQualifiedStatus,
-  latestEventByLead,
+  currentSettingStatuses,
   splitLeadEvents,
 } from '@/lib/lead-events'
 import {
@@ -111,7 +111,7 @@ export default function LeadsContent({ leads }) {
   // (Lead Qualifié), événement Closing vérifié GHL (Deal Qualifié, qui inclut
   // Deal Won ; Deal Won). Mêmes définitions que Setting, Closing et Coûts.
   const funnelData = useMemo(() => {
-    const currentSettings = latestEventByLead(enrichedSettingEvents.filter((e) => e.setting_status))
+    const currentSettings = currentSettingStatuses(enrichedSettingEvents)
     const datedClosingEvents = filterEventsByDateRange(enrichedClosingEvents, startDate, endDate)
 
     const steps = [
