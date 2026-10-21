@@ -4,7 +4,6 @@ import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   countDistinctLeads,
-  dealEntries,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
   eventDay,
@@ -381,12 +380,8 @@ export default function CostsContent({ spendData, leadsData }) {
     [filteredClosingEvents]
   )
 
-  // Deal = lead entré en Closing, daté de son entrée : même définition que
-  // la page d'accueil.
-  const totalDeals = useMemo(
-    () => filterEventDimensions(dealEntries(enrichedSettingEvents, enrichedClosingEvents), filters).length,
-    [enrichedSettingEvents, enrichedClosingEvents, filters]
-  )
+  // Un lead qualifié = un RDV pris = un deal : même définition que la page d'accueil.
+  const totalDeals = totalRdv
 
   const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0
   const cpQualifiedLead = totalRdv > 0 ? totalSpend / totalRdv : 0

@@ -145,7 +145,7 @@ export default function OverviewContent({ leads, spendData }) {
       <Section title="Volumes">
         <StatCard icon={Users} label="Leads" value={formatNumber(overview.leads)} hint="Leads entrés sur la période" />
         <StatCard icon={UserCheck} label="Leads qualifiés" value={formatNumber(overview.qualifiedLeads)} hint="Statut Setting « Lead qualifié »" />
-        <StatCard icon={Handshake} label="Deals" value={formatNumber(overview.deals)} hint="Leads entrés en Closing (RDV pris)" />
+        <StatCard icon={Handshake} label="Deals" value={formatNumber(overview.deals)} hint="Leads qualifiés : RDV pris" />
         <StatCard icon={BadgeCheck} label="Deals qualifiés" value={formatNumber(overview.qualifiedDeals)} hint="Deal Qualifié, Deal Won compris" />
         <StatCard icon={Trophy} label="Deals won" value={formatNumber(overview.dealsWon)} hint="Deals gagnés sur la période" />
       </Section>
