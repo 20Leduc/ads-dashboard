@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Users, UserCheck, Handshake, BadgeCheck, Trophy, Wallet, Coins } from 'lucide-react'
+import { Users, UserCheck, Handshake, BadgeCheck, Trophy, Wallet, Coins, PhoneCall } from 'lucide-react'
 import { eventDay } from '@/lib/lead-events'
 import { buildOverview, periodRange } from '@/lib/overview'
 
@@ -155,6 +155,12 @@ export default function OverviewContent({ leads, spendData }) {
         <StatCard icon={Coins} label="Coût par lead" value={formatCurrency(overview.costPerLead)} hint={`Sur ${formatNumber(overview.leads)} leads`} />
         <StatCard icon={Coins} label="Coût par lead qualifié" value={formatCurrency(overview.costPerQualifiedLead)} hint={`Sur ${formatNumber(overview.qualifiedLeads)} leads qualifiés`} />
         <StatCard icon={Coins} label="Coût par deal" value={formatCurrency(overview.costPerDeal)} hint={`Sur ${formatNumber(overview.deals)} deals`} />
+        <StatCard
+          icon={PhoneCall}
+          label="Coût par call"
+          value={formatCurrency(overview.costPerCall)}
+          hint={`Sur ${formatNumber(overview.calls)} calls (${formatNumber(overview.qualifiedLeads)} RDV − ${formatNumber(overview.noShows)} no-shows)`}
+        />
         <StatCard icon={Coins} label="Coût par deal qualifié" value={formatCurrency(overview.costPerQualifiedDeal)} hint={`Sur ${formatNumber(overview.qualifiedDeals)} deals qualifiés`} />
       </Section>
     </div>

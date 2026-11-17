@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
+  countCalls,
   countDistinctLeads,
   dedupeEventsByLead,
   enrichEventsWithLeadSnapshots,
@@ -29,6 +30,7 @@ import {
   UserX,
   Send,
   BadgeCheck,
+  PhoneCall,
 } from 'lucide-react'
 import {
   LineChart,
@@ -383,8 +385,11 @@ export default function CostsContent({ spendData, leadsData }) {
 
   // Un lead qualifié = un RDV pris = un deal : même définition que la page d'accueil.
   const totalDeals = totalRdv
+  // Calls : RDV de la période moins les no-shows de la période (même calcul que l'accueil).
+  const calls = countCalls(totalRdv, noShow)
 
   const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0
+  const cpCall = calls > 0 ? totalSpend / calls : 0
   const cpQualifiedLead = totalRdv > 0 ? totalSpend / totalRdv : 0
   const cpDeal = totalDeals > 0 ? totalSpend / totalDeals : 0
   const cpDealQl = dealQualifies > 0 ? totalSpend / dealQualifies : 0
@@ -525,7 +530,7 @@ export default function CostsContent({ spendData, leadsData }) {
   }, [filteredSpend, filteredLeads, filteredSettingEvents, filteredClosingEvents])
 
   const IconsRow1 = [DollarSign, TrendingDown, Target]
-  const IconsRow2 = [UserCheck, Calendar, BadgeCheck]
+  const IconsRow2 = [UserCheck, Calendar, PhoneCall, BadgeCheck]
   const IconsRow3 = [Trophy, UserX, Send]
 
   const kpiRows = [
@@ -537,6 +542,7 @@ export default function CostsContent({ spendData, leadsData }) {
     [
       { label: 'CP Lead Qualifié', value: formatCurrency(cpQualifiedLead), sub: `${formatNumber(totalRdv)} leads qualifiés` },
       { label: 'CP Deal', value: formatCurrency(cpDeal), sub: `${formatNumber(totalDeals)} deals` },
+      { label: 'CP Call', value: formatCurrency(cpCall), sub: `${formatNumber(calls)} calls (RDV − no-shows)` },
       { label: 'CP Deal QL', value: formatCurrency(cpDealQl), sub: `${formatNumber(dealQualifies)} deals qualifiés` },
     ],
     [
@@ -642,7 +648,7 @@ export default function CostsContent({ spendData, leadsData }) {
           key={rowIdx}
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
+            gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`,
             gap: '16px',
             width: '100%',
           }}
