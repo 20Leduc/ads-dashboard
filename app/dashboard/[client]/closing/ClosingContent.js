@@ -21,6 +21,7 @@ import {
   rdvLeadIds,
   splitLeadEvents,
 } from '@/lib/lead-events'
+import { BREAKDOWN_DIMENSIONS, buildClosingBreakdown } from '@/lib/closing-breakdown'
 import {
   Calendar,
   UserX,
@@ -46,6 +47,18 @@ import {
 } from 'recharts'
 
 const COLORS = ['#00D18B', '#0088FE', '#FF6B6B', '#FFB347', '#A78BFA', '#888888']
+
+// Colonnes du détail par campagne / adset / annonce (sans couleur : chiffre simple).
+const BREAKDOWN_COLUMNS = [
+  { key: 'rdv', label: 'Total RDV' },
+  { key: 'noShow', label: 'No Show', color: '#ff4444' },
+  { key: 'dealQualified', label: 'Deal Qualifiés', color: '#A78BFA' },
+  { key: 'dealNonQualified', label: 'Deal Non Qualifiés', color: '#FFB347' },
+  { key: 'dealWon', label: 'Deal Won', color: '#00D18B' },
+  { key: 'dealLost', label: 'Deal Lost', color: '#888888' },
+  { key: 'proposalSent', label: 'Proposal Sent', color: '#0088FE' },
+  { key: 'proposalSigned', label: 'Proposal Signed', color: '#22D3EE' },
+]
 
 function aggregateBy(data, keyFn) {
   const map = {}
@@ -147,6 +160,7 @@ export default function ClosingContent({ leads }) {
   const [filterPlatform, setFilterPlatform] = useState('')
   const [filterCampaign, setFilterCampaign] = useState('')
   const [filterSocial, setFilterSocial] = useState('')
+  const [breakdownDimension, setBreakdownDimension] = useState('campaign')
 
   const { leadCreatedEvents, settingEvents, closingEvents } = useMemo(
     () => splitLeadEvents(leads),
@@ -296,31 +310,17 @@ export default function ClosingContent({ leads }) {
     [passedClosingEvents]
   )
 
-  const tableData = useMemo(() => {
-    const map = {}
-    const row = (c) => (map[c] ||= {
-      campaign: c, rdvIds: new Set(), noShowIds: new Set(), dealQualifiedIds: new Set(), dealWonIds: new Set(),
-    })
-    rdvStatuses.forEach((l) => row(l.campaign_name || 'N/A').rdvIds.add(l.lead_id))
-    passedClosingEvents.forEach((l) => {
-      if (isNoShowStatus(l.closing_status)) row(l.campaign_name || 'N/A').noShowIds.add(l.lead_id)
-    })
-    datedClosingEvents.forEach((l) => {
-      if (!isDealQualifiedStatus(l.closing_status)) return
-      const r = row(l.campaign_name || 'N/A')
-      r.dealQualifiedIds.add(l.lead_id)
-      if (isDealWonStatus(l.closing_status)) r.dealWonIds.add(l.lead_id)
-    })
-    return Object.values(map)
-      .map((value) => ({
-        campaign: value.campaign,
-        totalRdv: value.rdvIds.size,
-        noShow: value.noShowIds.size,
-        dealQualifies: value.dealQualifiedIds.size,
-        dealWon: value.dealWonIds.size,
-      }))
-      .sort((a, b) => b.dealWon - a.dealWon)
-  }, [rdvStatuses, passedClosingEvents, datedClosingEvents])
+  // Détail par campagne, adset ou annonce : mêmes définitions que les cartes
+  // (statuts de la période, No-Show = dernier statut de la période).
+  const tableData = useMemo(
+    () => buildClosingBreakdown({
+      dimension: breakdownDimension,
+      rdvEvents: rdvStatuses,
+      closingEvents: datedClosingEvents,
+      latestClosingEvents: passedClosingEvents,
+    }),
+    [breakdownDimension, rdvStatuses, datedClosingEvents, passedClosingEvents]
+  )
 
   // Le funnel suit les RDV de la période jusqu'à leur issue : une étape ne
   // peut pas dépasser la précédente, contrairement aux cartes, datées chacune
@@ -624,43 +624,76 @@ export default function ClosingContent({ leads }) {
       </div>
 
       <div style={chartCardStyle}>
-        <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-          Détail par campagne
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, margin: 0 }}>
+            Détail par {BREAKDOWN_DIMENSIONS[breakdownDimension].label.toLowerCase()}
+          </p>
+          <div role="group" aria-label="Regrouper par" style={{ display: 'flex', gap: '6px' }}>
+            {Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { label }]) => {
+              const active = breakdownDimension === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setBreakdownDimension(key)}
+                  style={{
+                    background: active ? '#00D18B20' : 'transparent',
+                    border: `1px solid ${active ? '#00D18B' : '#1f1f1f'}`,
+                    color: active ? '#00D18B' : '#888888',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: active ? 600 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div style={{ overflowX: 'auto' }}>
         <Table>
           <TableHeader>
             <TableRow style={{ background: '#161616', borderBottom: '1px solid #1f1f1f' }}>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Campagne</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total RDV</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>No Show</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deal Qualifiés</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deal Won</TableHead>
-              <TableHead style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Taux Closing</TableHead>
+              {[BREAKDOWN_DIMENSIONS[breakdownDimension].label, ...BREAKDOWN_COLUMNS.map((c) => c.label), 'Taux Closing'].map((label) => (
+                <TableHead key={label} style={{ color: '#888888', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+                  {label}
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
+            {tableData.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={BREAKDOWN_COLUMNS.length + 2} style={{ color: '#888888', fontSize: '14px', textAlign: 'center', padding: '24px' }}>
+                  Aucun RDV ni statut Closing sur la période
+                </TableCell>
+              </TableRow>
+            )}
             {tableData.map((row, i) => (
-              <TableRow key={i} style={{ background: i % 2 === 0 ? '#111111' : '#0d0d0d', borderBottom: '1px solid #1f1f1f' }}>
-                <TableCell style={{ color: '#ffffff', fontSize: '14px' }}>{row.campaign}</TableCell>
-                <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>{row.totalRdv}</TableCell>
-                <TableCell>
-                  <span style={{ display: 'inline-block', background: '#ff444420', color: '#ff4444', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
-                    {row.noShow}
-                  </span>
+              <TableRow key={row.key} style={{ background: i % 2 === 0 ? '#111111' : '#0d0d0d', borderBottom: '1px solid #1f1f1f' }}>
+                <TableCell style={{ color: '#ffffff', fontSize: '14px', minWidth: '220px' }}>
+                  {row.name}
+                  {row.parents.length > 0 && (
+                    <div style={{ color: '#666666', fontSize: '12px', marginTop: '2px' }}>{row.parents.join(' › ')}</div>
+                  )}
                 </TableCell>
-                <TableCell>
-                  <span style={{ display: 'inline-block', background: '#A78BFA20', color: '#A78BFA', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
-                    {row.dealQualifies}
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <span style={{ display: 'inline-block', background: '#00D18B20', color: '#00D18B', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
-                    {row.dealWon}
-                  </span>
-                </TableCell>
+                {BREAKDOWN_COLUMNS.map(({ key, color }) => (
+                  <TableCell key={key}>
+                    {color ? (
+                      <span style={{ display: 'inline-block', background: `${color}20`, color, borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 500 }}>
+                        {row[key]}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>{row[key]}</span>
+                    )}
+                  </TableCell>
+                ))}
                 <TableCell style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}>
-                  {row.totalRdv > 0 ? ((row.dealWon / row.totalRdv) * 100).toFixed(1) + '%' : '0.0%'}
+                  {row.closingRate === null ? '0.0%' : row.closingRate.toFixed(1) + '%'}
                 </TableCell>
               </TableRow>
             ))}
