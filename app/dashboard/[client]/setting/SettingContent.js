@@ -14,6 +14,8 @@ import {
   currentSettingStatuses,
   splitLeadEvents,
 } from '@/lib/lead-events'
+import { BREAKDOWN_DIMENSIONS, breakdownPieData } from '@/lib/closing-breakdown'
+import { buildSettingBreakdown, SETTING_MEASURES } from '@/lib/setting-breakdown'
 import {
   Users,
   UserCheck,
@@ -138,6 +140,7 @@ export default function SettingContent({ leads }) {
   const [filterPlatform, setFilterPlatform] = useState('')
   const [filterCampaign, setFilterCampaign] = useState('')
   const [filterSocial, setFilterSocial] = useState('')
+  const [pieMeasure, setPieMeasure] = useState('qualified')
 
   const { leadCreatedEvents, settingEvents } = useMemo(
     () => splitLeadEvents(leads),
@@ -193,6 +196,16 @@ export default function SettingContent({ leads }) {
   const qualifiedStatuses = useMemo(
     () => datedStatuses.filter((e) => isQualifiedStatus(e.setting_status)),
     [datedStatuses]
+  )
+
+  // Camemberts par campagne, adset et annonce pour la mesure choisie.
+  const pieMeasureLabel = SETTING_MEASURES.find((m) => m.key === pieMeasure)?.label ?? ''
+  const pieCharts = useMemo(
+    () => Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { label }]) => {
+      const rows = buildSettingBreakdown({ dimension: key, statusEvents: datedStatuses })
+      return { key, label, data: getTop5WithOthers(breakdownPieData(rows, pieMeasure)) }
+    }),
+    [pieMeasure, datedStatuses]
   )
 
   const total = createdInPeriod.length
@@ -547,6 +560,36 @@ export default function SettingContent({ leads }) {
             Qualifiés par réseau social
           </p>
           <DonutWithLegend data={qualifiesBySocial} />
+        </div>
+      </div>
+
+      <div style={chartCardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, margin: 0 }}>
+            Répartition des {pieMeasureLabel} par campagne, adset et annonce
+          </p>
+          <label style={{ color: '#888888', fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Mesure
+            <select value={pieMeasure} onChange={(e) => setPieMeasure(e.target.value)} style={selectStyle}>
+              {SETTING_MEASURES.map(({ key, label }) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+          {pieCharts.map(({ key, label, data }) => (
+            <div key={key} style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '16px', minWidth: 0 }}>
+              <p style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600, margin: '0 0 8px' }}>Par {label.toLowerCase()}</p>
+              {data.length > 0 ? (
+                <DonutWithLegend data={data} />
+              ) : (
+                <p style={{ color: '#888888', fontSize: '13px', textAlign: 'center', padding: '110px 0' }}>
+                  Aucun {pieMeasureLabel} sur la période
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
