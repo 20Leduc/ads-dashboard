@@ -378,7 +378,7 @@ export default function LeadsContent({ leads }) {
             {activeCreatives}
           </p>
           <p style={{ color: '#888888', fontSize: '13px', marginTop: '8px' }}>
-            annonce{activeCreatives > 1 ? 's' : ''} distincte{activeCreatives > 1 ? 's' : ''}
+            {activeCreatives > 1 ? 'Ads distinctes' : 'Ad distincte'}
           </p>
         </div>
       </div>
@@ -511,7 +511,7 @@ export default function LeadsContent({ leads }) {
           { title: 'Leads par campagne', data: campaignData },
           { title: 'Leads par plateforme', data: platformData },
           { title: 'Leads par adset', data: adsetData },
-          { title: 'Leads par ad', data: adData },
+          { title: 'Leads par Ads', data: adData },
         ].map(({ title, data }) => {
           const sortedLegend = [...data].sort((a, b) => {
             if (a.name === 'Autres') return 1
@@ -639,7 +639,7 @@ export default function LeadsContent({ leads }) {
             marginBottom: '20px',
           }}
         >
-          Détail des annonces
+          Détail des Ads
         </p>
         <div style={{ overflowX: 'auto' }}>
         <Table>

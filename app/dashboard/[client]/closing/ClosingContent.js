@@ -322,14 +322,14 @@ export default function ClosingContent({ leads }) {
   // Camemberts par campagne, adset et annonce pour la mesure choisie.
   const pieMeasureLabel = CLOSING_MEASURES.find((m) => m.key === pieMeasure)?.label ?? ''
   const pieCharts = useMemo(
-    () => Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { label }]) => {
+    () => Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { inText }]) => {
       const rows = buildClosingBreakdown({
         dimension: key,
         rdvEvents: rdvStatuses,
         closingEvents: datedClosingEvents,
         latestClosingEvents: passedClosingEvents,
       })
-      return { key, label, data: getTop5WithOthers(breakdownPieData(rows, pieMeasure)) }
+      return { key, inText, data: getTop5WithOthers(breakdownPieData(rows, pieMeasure)) }
     }),
     [pieMeasure, rdvStatuses, datedClosingEvents, passedClosingEvents]
   )
@@ -616,7 +616,7 @@ export default function ClosingContent({ leads }) {
       <div style={chartCardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, margin: 0 }}>
-            Répartition des {pieMeasureLabel} par campagne, adset et annonce
+            Répartition des {pieMeasureLabel} par campagne, adset et Ads
           </p>
           <label style={{ color: '#888888', fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
             Mesure
@@ -628,9 +628,9 @@ export default function ClosingContent({ leads }) {
           </label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-          {pieCharts.map(({ key, label, data }) => (
+          {pieCharts.map(({ key, inText, data }) => (
             <div key={key} style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '16px', minWidth: 0 }}>
-              <p style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600, margin: '0 0 8px' }}>Par {label.toLowerCase()}</p>
+              <p style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600, margin: '0 0 8px' }}>Par {inText}</p>
               {data.length > 0 ? (
                 <DonutWithLegend data={data} />
               ) : (
@@ -662,7 +662,7 @@ export default function ClosingContent({ leads }) {
       <div style={chartCardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, margin: 0 }}>
-            Détail par {BREAKDOWN_DIMENSIONS[breakdownDimension].label.toLowerCase()}
+            Détail par {BREAKDOWN_DIMENSIONS[breakdownDimension].inText}
           </p>
           <div role="group" aria-label="Regrouper par" style={{ display: 'flex', gap: '6px' }}>
             {Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { label }]) => {
