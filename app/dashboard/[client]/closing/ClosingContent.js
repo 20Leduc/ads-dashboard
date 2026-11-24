@@ -296,10 +296,6 @@ export default function ClosingContent({ leads }) {
     () => dedupeEventsByLead(datedClosingEvents.filter((d) => isDealWonStatus(d.closing_status))),
     [datedClosingEvents]
   )
-  const dealWonByCampaign = useMemo(
-    () => getTop5WithOthers(aggregateBy(dealWonEvents, (l) => l.campaign_name)),
-    [dealWonEvents]
-  )
   const dealWonByPlatform = useMemo(
     () => getTop5WithOthers(aggregateBy(dealWonEvents, (l) => l.platform)),
     [dealWonEvents]
@@ -611,32 +607,10 @@ export default function ClosingContent({ leads }) {
         </div>
         <div style={chartCardStyle}>
           <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-            Deal Won par campagne
-          </p>
-          <DonutWithLegend data={dealWonByCampaign} />
-        </div>
-        <div style={chartCardStyle}>
-          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
             Deal Won par plateforme
           </p>
           <DonutWithLegend data={dealWonByPlatform} />
         </div>
-      </div>
-
-      <div style={chartCardStyle}>
-        <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
-          No Show par campagne
-        </p>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={campaignBarData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-            <XAxis dataKey="name" stroke="#888888" tick={{ fontSize: 12 }} />
-            <YAxis stroke="#888888" tick={{ fontSize: 12 }} allowDecimals={false} />
-            <Tooltip contentStyle={tooltipStyle} />
-            <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
-            <Bar dataKey="No Show" fill="#ff4444" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
       </div>
 
       <div style={chartCardStyle}>
@@ -667,6 +641,22 @@ export default function ClosingContent({ leads }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={chartCardStyle}>
+        <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, marginBottom: '20px' }}>
+          No Show par campagne
+        </p>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={campaignBarData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
+            <XAxis dataKey="name" stroke="#888888" tick={{ fontSize: 12 }} />
+            <YAxis stroke="#888888" tick={{ fontSize: 12 }} allowDecimals={false} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Legend verticalAlign="top" align="right" wrapperStyle={{ color: '#888888', fontSize: '12px', paddingBottom: '12px' }} />
+            <Bar dataKey="No Show" fill="#ff4444" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       <div style={chartCardStyle}>
