@@ -21,7 +21,7 @@ import {
   rdvLeadIds,
   splitLeadEvents,
 } from '@/lib/lead-events'
-import { BREAKDOWN_DIMENSIONS, buildClosingBreakdown } from '@/lib/closing-breakdown'
+import { BREAKDOWN_DIMENSIONS, CLOSING_MEASURES, breakdownPieData, buildClosingBreakdown } from '@/lib/closing-breakdown'
 import {
   Calendar,
   UserX,
@@ -161,6 +161,7 @@ export default function ClosingContent({ leads }) {
   const [filterCampaign, setFilterCampaign] = useState('')
   const [filterSocial, setFilterSocial] = useState('')
   const [breakdownDimension, setBreakdownDimension] = useState('campaign')
+  const [pieMeasure, setPieMeasure] = useState('dealQualified')
 
   const { leadCreatedEvents, settingEvents, closingEvents } = useMemo(
     () => splitLeadEvents(leads),
@@ -320,6 +321,21 @@ export default function ClosingContent({ leads }) {
       latestClosingEvents: passedClosingEvents,
     }),
     [breakdownDimension, rdvStatuses, datedClosingEvents, passedClosingEvents]
+  )
+
+  // Camemberts par campagne, adset et annonce pour la mesure choisie.
+  const pieMeasureLabel = CLOSING_MEASURES.find((m) => m.key === pieMeasure)?.label ?? ''
+  const pieCharts = useMemo(
+    () => Object.entries(BREAKDOWN_DIMENSIONS).map(([key, { label }]) => {
+      const rows = buildClosingBreakdown({
+        dimension: key,
+        rdvEvents: rdvStatuses,
+        closingEvents: datedClosingEvents,
+        latestClosingEvents: passedClosingEvents,
+      })
+      return { key, label, data: getTop5WithOthers(breakdownPieData(rows, pieMeasure)) }
+    }),
+    [pieMeasure, rdvStatuses, datedClosingEvents, passedClosingEvents]
   )
 
   // Le funnel suit les RDV de la période jusqu'à leur issue : une étape ne
@@ -621,6 +637,36 @@ export default function ClosingContent({ leads }) {
             <Bar dataKey="No Show" fill="#ff4444" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      <div style={chartCardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+          <p style={{ color: '#ffffff', fontSize: '15px', fontWeight: 600, margin: 0 }}>
+            Répartition des {pieMeasureLabel} par campagne, adset et annonce
+          </p>
+          <label style={{ color: '#888888', fontSize: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Mesure
+            <select value={pieMeasure} onChange={(e) => setPieMeasure(e.target.value)} style={selectStyle}>
+              {CLOSING_MEASURES.map(({ key, label }) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+          {pieCharts.map(({ key, label, data }) => (
+            <div key={key} style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '16px', minWidth: 0 }}>
+              <p style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600, margin: '0 0 8px' }}>Par {label.toLowerCase()}</p>
+              {data.length > 0 ? (
+                <DonutWithLegend data={data} />
+              ) : (
+                <p style={{ color: '#888888', fontSize: '13px', textAlign: 'center', padding: '110px 0' }}>
+                  Aucun {pieMeasureLabel} sur la période
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div style={chartCardStyle}>
